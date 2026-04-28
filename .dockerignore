@@ -1,0 +1,18 @@
+# 过滤 Python 缓存
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 过滤大型模型和数据 (建议通过 -v 挂载)
+model_cache/
+assets/*.mp4
+assets/*.srt
+tmp/
+tasks.db
+
+# 过滤开发工具配置
+.git/
+.idea/
+.claude/
+.venv/
+jellysub_ai.egg-info/

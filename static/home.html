@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="page-title">JellySub-AI — 自动化 AI 字幕生成</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-brand">
+            <div class="logo-mark">JS</div>
+            <span class="logo-text">JellySub-AI</span>
+        </div>
+        <div class="topbar-actions">
+            <button onclick="toggleLang()" class="topbar-btn" id="lang-toggle">English</button>
+            <a href="/admin" class="topbar-btn topbar-btn-accent" id="nav-admin">管理后台</a>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <h1 id="hero-title">为您的视频<br><span style="color:var(--primary);" id="hero-title-accent">自动生成字幕</span></h1>
+            <p id="hero-desc">基于 Qwen3-ASR 与智能翻译技术，为您的 Jellyfin 媒体库自动生成精准的多语言字幕。无需干预，入库即处理。</p>
+            <div style="display: flex; gap: 1rem; justify-content: center;">
+                <a href="/admin" class="btn btn-primary" style="padding: 0.75rem 2.5rem; font-size: 1rem; border-radius: 999px;" id="hero-cta">进入管理后台</a>
+            </div>
+        </section>
+
+        <section class="dashboard" style="padding-top: 0;">
+            <div class="task-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+                <div class="task-card">
+                    <div style="font-size: 2rem; margin-bottom: 1rem;">⚡</div>
+                    <h3 style="margin-bottom: 0.5rem;" id="feat1-title">全自动流程</h3>
+                    <p style="font-size: 0.875rem; color: var(--text-dim);" id="feat1-desc">通过 Webhook 实时触发，从音频提取到字幕挂载，全程无需人工干预。</p>
+                </div>
+                <div class="task-card">
+                    <div style="font-size: 2rem; margin-bottom: 1rem;">🎙️</div>
+                    <h3 style="margin-bottom: 0.5rem;" id="feat2-title">精准 ASR</h3>
+                    <p style="font-size: 0.875rem; color: var(--text-dim);" id="feat2-desc">采用先进的语音识别模型，精准捕捉每一个字句与时间戳。</p>
+                </div>
+                <div class="task-card">
+                    <div style="font-size: 2rem; margin-bottom: 1rem;">🌍</div>
+                    <h3 style="margin-bottom: 0.5rem;" id="feat3-title">多语言翻译</h3>
+                    <p style="font-size: 0.875rem; color: var(--text-dim);" id="feat3-desc">支持多种主流语言互译，让语言不再是探索精彩内容的障碍。</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer style="text-align: center; padding: 4rem 1.5rem; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.875rem;">
+        &copy; 2026 JellySub-AI &middot; <span id="footer-tag">精简、高效、智能</span>
+    </footer>
+
+    <script>
+        const i18n = {
+            zh: {
+                pageTitle: 'JellySub-AI — 自动化 AI 字幕生成',
+                navAdmin: '管理后台',
+                langBtn: 'English',
+                heroTitle: '为您的视频',
+                heroTitleAccent: '自动生成字幕',
+                heroDesc: '基于 Qwen3-ASR 与智能翻译技术，为您的 Jellyfin 媒体库自动生成精准的多语言字幕。无需干预，入库即处理。',
+                heroCTA: '进入管理后台',
+                feat1Title: '全自动流程',
+                feat1Desc: '通过 Webhook 实时触发，从音频提取到字幕挂载，全程无需人工干预。',
+                feat2Title: '精准 ASR',
+                feat2Desc: '采用先进的语音识别模型，精准捕捉每一个字句与时间戳。',
+                feat3Title: '多语言翻译',
+                feat3Desc: '支持多种主流语言互译，让语言不再是探索精彩内容的障碍。',
+                footerTag: '精简、高效、智能'
+            },
+            en: {
+                pageTitle: 'JellySub-AI — Automated AI Subtitles',
+                navAdmin: 'Dashboard',
+                langBtn: '中文',
+                heroTitle: 'Automated Subtitles',
+                heroTitleAccent: 'for Your Videos',
+                heroDesc: 'Precise multilingual subtitles for your Jellyfin library using Qwen3-ASR and AI translation. Zero intervention, processed upon arrival.',
+                heroCTA: 'Go to Dashboard',
+                feat1Title: 'Fully Automated',
+                feat1Desc: 'Triggered via Webhook. From audio extraction to subtitle mounting, zero manual work required.',
+                feat2Title: 'Precise ASR',
+                feat2Desc: 'Advanced speech recognition capturing every word and timestamp with high precision.',
+                feat3Title: 'Multilingual',
+                feat3Desc: 'Supports all major languages, breaking down barriers to exploring amazing content.',
+                footerTag: 'Simple, Efficient, Intelligent'
+            }
+        };
+
+        let currentLang = localStorage.getItem('lang') || 'zh';
+
+        function updateContent() {
+            const lang = i18n[currentLang];
+            document.getElementById('page-title').textContent = lang.pageTitle;
+            document.getElementById('nav-admin').textContent = lang.navAdmin;
+            document.getElementById('lang-toggle').textContent = lang.langBtn;
+            
+            // Hero
+            const heroTitle = document.getElementById('hero-title');
+            heroTitle.firstChild.textContent = lang.heroTitle;
+            if (currentLang === 'en') {
+                heroTitle.style.display = 'flex';
+                heroTitle.style.flexDirection = 'column';
+                heroTitle.style.alignItems = 'center';
+            } else {
+                heroTitle.style.display = 'block';
+            }
+            
+            document.getElementById('hero-title-accent').textContent = lang.heroTitleAccent;
+            document.getElementById('hero-desc').textContent = lang.heroDesc;
+            document.getElementById('hero-cta').textContent = lang.heroCTA;
+
+            // Features
+            document.getElementById('feat1-title').textContent = lang.feat1Title;
+            document.getElementById('feat1-desc').textContent = lang.feat1Desc;
+            document.getElementById('feat2-title').textContent = lang.feat2Title;
+            document.getElementById('feat2-desc').textContent = lang.feat2Desc;
+            document.getElementById('feat3-title').textContent = lang.feat3Title;
+            document.getElementById('feat3-desc').textContent = lang.feat3Desc;
+
+            document.getElementById('footer-tag').textContent = lang.footerTag;
+        }
+
+        function toggleLang() {
+            currentLang = currentLang === 'zh' ? 'en' : 'zh';
+            localStorage.setItem('lang', currentLang);
+            updateContent();
+        }
+
+        updateContent();
+    </script>
+</body>
+</html>

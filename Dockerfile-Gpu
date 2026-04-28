@@ -1,0 +1,73 @@
+# ---- 阶段 1: 构建阶段 ----
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04 AS builder
+
+# 设置环境变量防止交互式弹窗
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 安装 Python 和构建工具
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3-pip \
+    python3.12-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# 拷贝依赖文件
+COPY pyproject.toml uv.lock ./
+
+# 安装 GPU 版依赖
+# 指定 --index-url 为 pytorch 的 CUDA 12.1 源
+RUN uv pip install --system --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cu121 \
+    --extra-index-url https://pypi.org/simple \
+    .
+
+# ---- 阶段 2: 运行阶段 ----
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+
+# 设置 Python 相关环境变量
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000 \
+    ADMIN_USERNAME=admin \
+    ADMIN_PASSWORD=admin \
+    TOTP_SECRET="" \
+    SESSION_SECRET="change_me_in_production" \
+    WEBHOOK_SECRET="" \
+    MODEL_SOURCE="" \
+    MODEL_IDLE_TIMEOUT=180 \
+    PATH="/usr/local/bin:$PATH"
+
+WORKDIR /app
+
+# 安装运行时系统依赖：Python 3.12, FFmpeg
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 链接 python 路径
+RUN ln -s /usr/bin/python3.12 /usr/bin/python
+
+# 从构建阶段拷贝已安装的库
+# 注意：Ubuntu 的路径与 Debian 稍有不同，通常在 /usr/local/lib/python3.12/dist-packages
+COPY --from=builder /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# 拷贝源代码
+COPY . .
+
+# 创建必要目录
+RUN mkdir -p /app/model_cache /app/tmp /app/assets
+
+EXPOSE 8000
+
+# 使用 uvicorn 启动
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

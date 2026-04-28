@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理后台 — JellySub-AI</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-brand">
+            <div class="logo-mark">JS</div>
+            <span class="logo-text">JellySub-AI</span>
+        </div>
+        <div class="topbar-actions">
+            <a href="/" class="topbar-btn"><span>首页</span></a>
+            <button type="button" class="topbar-btn" onclick="startTest()" id="topbar-test-btn"><span>测试字幕</span></button>
+            <button type="button" class="topbar-btn topbar-btn-accent" onclick="openSettings()"><span>设置</span></button>
+            <button type="button" class="topbar-btn" onclick="logout()"><span>退出</span></button>
+        </div>
+    </header>
+
+    <main class="dashboard">
+        <!-- Status -->
+        <div class="status-bar">
+            <div class="status-pill">
+                <span class="pill-dot"></span>
+                <span class="pill-label">ASR</span>
+                <span class="pill-value" id="status-asr-model">加载中...</span>
+            </div>
+            <div class="status-pill">
+                <span class="pill-dot"></span>
+                <span class="pill-label">翻译</span>
+                <span class="pill-value" id="status-translate-model">加载中...</span>
+            </div>
+            <div class="status-pill">
+                <span class="pill-dot"></span>
+                <span class="pill-label">目标语言</span>
+                <span class="pill-value" id="status-lang-value">加载中...</span>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <!-- Left: Videos -->
+            <section class="dash-section">
+                <div class="section-header">
+                    <h2 class="section-title" style="margin-bottom: 0;">🎥 本地视频</h2>
+                    <div class="section-header-actions">
+                        <label class="select-all-label">
+                            <input type="checkbox" id="video-select-all" onchange="toggleAllVideos(this.checked)"> 全选
+                        </label>
+                        <button class="section-refresh" onclick="scanVideos()" title="刷新列表">&#8635;</button>
+                        <button class="btn btn-primary" id="batch-gen-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="batchGenSub()">批量生成字幕</button>
+                    </div>
+                </div>
+                <div class="video-list" id="video-grid"></div>
+                <div class="empty-state" id="video-empty" style="display: none;">
+                    <div class="empty-icon">🎬</div>
+                    <p>未发现视频文件，请检查设置中的目录映射。</p>
+                </div>
+            </section>
+
+            <!-- Right: Tasks -->
+            <aside class="dash-section">
+                <div id="running-section" style="display: none; margin-bottom: 1.5rem;">
+                    <div class="running-counter">
+                        <div class="running-icon">⏳</div>
+                        <div class="running-info">
+                            <span class="running-label">正在处理</span>
+                            <span class="running-count" id="running-count">0 个任务</span>
+                        </div>
+                        <div class="running-bar"><div class="running-bar-inner"></div></div>
+                    </div>
+                </div>
+
+                <div class="section-header">
+                    <h2 class="section-title" style="margin-bottom: 0;">📜 任务历史</h2>
+                    <div class="section-header-actions">
+                        <label class="select-all-label">
+                            <input type="checkbox" id="task-select-all" onchange="toggleAllTasks(this.checked)"> 全选
+                        </label>
+                        <button class="section-refresh" onclick="loadTasks()">&#8635;</button>
+                        <button class="btn btn-danger" id="batch-del-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="batchDeleteTasks()">批量删除</button>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                    <select id="filter-type" onchange="loadTasks()" class="btn" style="flex: 1; padding: 0.35rem;">
+                        <option value="">全部类型</option>
+                        <option value="test">测试</option>
+                        <option value="video_subtitle">字幕</option>
+                        <option value="webhook">Webhook</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: 0.25rem; margin-bottom: 1rem; overflow-x: auto; padding-bottom: 0.5rem;">
+                    <button class="filter-btn active btn" data-status="" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">全部</button>
+                    <button class="filter-btn btn" data-status="processing" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">处理中</button>
+                    <button class="filter-btn btn" data-status="done" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">已完成</button>
+                    <button class="filter-btn btn" data-status="failed" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">失败</button>
+                </div>
+
+                <div id="task-grid" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
+                
+                <div class="empty-state" id="task-empty" style="display: none; padding: 2rem 1rem;">
+                    <p>暂无任务记录</p>
+                </div>
+
+                <div class="pagination" id="task-pagination" style="display: none; justify-content: space-between; margin-top: 1.5rem;">
+                    <button class="btn" onclick="loadTasks(-7)" id="task-prev">←</button>
+                    <span id="task-page-info" style="font-size: 0.75rem;"></span>
+                    <button class="btn" onclick="loadTasks(7)" id="task-next">→</button>
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settings-modal" style="display: none;">
+        <div class="modal-panel" style="max-width: 1000px;">
+            <div class="modal-header">
+                <h2 style="font-size: 1.25rem;">⚙️ 系统配置</h2>
+                <button class="section-refresh" style="font-size: 1.5rem; transform: none;" onclick="closeSettings()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="config-form">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                        <!-- Connection & Path -->
+                        <div class="settings-card">
+                            <h3 class="settings-section-title">核心连接与路径</h3>
+                            <div class="form-group">
+                                <label>Jellyfin 服务器地址</label>
+                                <input type="url" id="jellyfin_url" placeholder="http://192.168.1.100:8096">
+                            </div>
+                            <div class="form-group">
+                                <label>Jellyfin API Key</label>
+                                <input type="password" id="jellyfin_api_key" placeholder="用于同步媒体库状态">
+                            </div>
+                            <div class="form-group">
+                                <label>路径映射 (Jellyfin &rarr; 本地)</label>
+                                <div id="path-mappings" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem;"></div>
+                                <button type="button" class="btn btn-full" onclick="addMapping()">+ 添加新的路径映射</button>
+                            </div>
+                        </div>
+
+                        <!-- ASR & Translation -->
+                        <div class="settings-card">
+                            <h3 class="settings-section-title">AI 处理引擎</h3>
+                            <div style="margin-bottom: 1.5rem;">
+                                <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:0.5rem;">语音识别 (ASR) 模式</label>
+                                <div class="mode-tabs" id="asr-tabs">
+                                    <button type="button" class="tab-btn" data-mode="local" onclick="switchTab('asr','local')">本地部署</button>
+                                    <button type="button" class="tab-btn" data-mode="online" onclick="switchTab('asr','online')">在线 API</button>
+                                </div>
+                                <input type="hidden" id="asr_mode">
+                                <div id="asr-local-fields" class="form-group">
+                                    <label>本地 ASR 模型名称</label>
+                                    <input type="text" id="asr_model" placeholder="例如: Qwen/Qwen3-ASR-0.6B">
+                                </div>
+                                <div id="asr-online-fields" style="display:none;">
+                                    <div class="form-group"><label>ASR API 地址</label><input type="url" id="asr_api_url"></div>
+                                    <div class="form-group"><label>ASR API Key</label><input type="password" id="asr_api_key"></div>
+                                    <div class="form-group"><label>ASR 模型名称</label><input type="text" id="asr_model_online"></div>
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom: 1rem;">
+                                <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:0.5rem;">翻译引擎模式</label>
+                                <div class="mode-tabs" id="translate-tabs">
+                                    <button type="button" class="tab-btn" data-mode="online" onclick="switchTab('translate','online')">在线 API</button>
+                                    <button type="button" class="tab-btn" data-mode="local" onclick="switchTab('translate','local')">本地模型</button>
+                                </div>
+                                <input type="hidden" id="translate_mode">
+                                <div id="translate-online-fields" class="form-group">
+                                    <label>翻译 API 地址</label>
+                                    <input type="url" id="translate_api_url">
+                                    <label style="margin-top:0.5rem;">翻译 API Key</label>
+                                    <input type="password" id="translate_api_key">
+                                    <label style="margin-top:0.5rem;">翻译模型名称</label>
+                                    <input type="text" id="translate_model">
+                                </div>
+                                <div id="translate-local-fields" style="display:none;" class="form-group">
+                                    <label>本地翻译模型名称</label>
+                                    <input type="text" id="translate_model_local">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Language & Dirs -->
+                        <div class="settings-card">
+                            <h3 class="settings-section-title">语言偏好与监控</h3>
+                            <div class="form-group">
+                                <label>目标翻译语言</label>
+                                <div class="tag-selector" id="target-lang-tags">
+                                    <div class="tag-option" data-value="zh-CN">简体中文</div>
+                                    <div class="tag-option" data-value="zh-TW">繁体中文</div>
+                                    <div class="tag-option" data-value="en">English</div>
+                                    <div class="tag-option" data-value="ja">日本語</div>
+                                    <div class="tag-option" data-value="ko">한국어</div>
+                                </div>
+                                <input type="hidden" id="target_language">
+                            </div>
+
+                            <div class="form-group">
+                                <label>视频库监控目录</label>
+                                <div id="video-dirs-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem;"></div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <input type="text" id="video-dir-input" placeholder="/path/to/videos" style="flex: 1;">
+                                    <button type="button" class="btn btn-primary" onclick="addVideoDir()">添加</button>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>临时工作目录</label>
+                                <input type="text" id="temp_dir" placeholder="./tmp">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <span id="save-status" style="margin-right: auto; font-weight: 600;"></span>
+                <button class="btn" onclick="closeSettings()">取消</button>
+                <button type="submit" form="config-form" class="btn btn-primary" id="save-btn" style="padding: 0.6rem 2rem;">确认并保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Player Modal (Identical to previous) -->
+    <div class="modal-overlay" id="player-modal" style="display: none;">
+        <div class="modal-panel" style="max-width: 960px; background: #000;">
+            <div class="modal-header" style="background: #fff; border-bottom: none;">
+                <h2 id="player-title" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">播放器</h2>
+                <button class="section-refresh" style="font-size: 1.5rem; transform: none;" onclick="closePlayer()">&times;</button>
+            </div>
+            <div style="position: relative; aspect-ratio: 16/9; background: #000;">
+                <video id="player-video" controls style="width: 100%; height: 100%;"></video>
+                <div id="player-subtitle-overlay" style="position: absolute; bottom: 10%; left: 0; right: 0; text-align: center; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8); font-size: 1.25rem; pointer-events: none; padding: 0 1rem;"></div>
+            </div>
+            <div class="modal-footer" style="background: #fff; border-top: none; justify-content: space-between; align-items: center;">
+                <div style="display: flex; gap: 0.5rem;" id="player-sub-btns">
+                    <button class="btn active" data-sub="none" onclick="setPlayerSub('none')">无字幕</button>
+                    <button class="btn" data-sub="source" onclick="setPlayerSub('source')">源语言</button>
+                    <button class="btn" data-sub="target" onclick="setPlayerSub('target')">翻译</button>
+                    <button class="btn" data-sub="bilingual" onclick="setPlayerSub('bilingual')">双语</button>
+                </div>
+                <span id="player-sub-status" style="font-size: 0.75rem; color: var(--text-muted);"></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_CONFIG = '/api/config';
+        let currentVideoDirs = [];
+
+        // --- Settings Logic ---
+        function openSettings() { document.getElementById('settings-modal').style.display = 'flex'; }
+        function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
+
+        function switchTab(group, mode) {
+            document.getElementById(group + '_mode').value = mode;
+            document.getElementById(group + '-tabs').querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+            document.getElementById(group + '-local-fields').style.display = mode === 'local' ? '' : 'none';
+            document.getElementById(group + '-online-fields').style.display = mode === 'online' ? '' : 'none';
+        }
+
+        // Initialize Tag Selector
+        document.querySelectorAll('.tag-option').forEach(opt => {
+            opt.onclick = () => {
+                document.querySelectorAll('.tag-option').forEach(o => o.classList.remove('active'));
+                opt.classList.add('active');
+                document.getElementById('target_language').value = opt.dataset.value;
+            };
+        });
+
+        async function loadConfig() {
+            try {
+                const resp = await fetch(API_CONFIG);
+                if (!resp.ok) { if (resp.status === 401) window.location.href = '/login'; return; }
+                const cfg = await resp.json();
+                
+                // Connection
+                document.getElementById('jellyfin_url').value = cfg.jellyfin_url || '';
+                document.getElementById('jellyfin_api_key').value = cfg.jellyfin_api_key || '';
+                document.getElementById('temp_dir').value = cfg.temp_dir || './tmp';
+
+                // ASR
+                switchTab('asr', cfg.asr_mode || 'local');
+                document.getElementById('asr_model').value = cfg.asr_model || '';
+                document.getElementById('asr_api_url').value = cfg.asr_api_url || '';
+                document.getElementById('asr_api_key').value = cfg.asr_api_key || '';
+                document.getElementById('asr_model_online').value = cfg.asr_model_online || '';
+
+                // Translation
+                switchTab('translate', cfg.translate_mode || 'online');
+                document.getElementById('translate_api_url').value = cfg.translate_api_url || '';
+                document.getElementById('translate_api_key').value = cfg.translate_api_key || '';
+                document.getElementById('translate_model').value = cfg.translate_model || '';
+                document.getElementById('translate_model_local').value = cfg.translate_model_local || '';
+                
+                // Target Language Tag
+                const targetLang = cfg.target_language || 'zh-CN';
+                document.getElementById('target_language').value = targetLang;
+                document.querySelectorAll('.tag-option').forEach(opt => {
+                    opt.classList.toggle('active', opt.dataset.value === targetLang);
+                });
+
+                // Path Mappings Backfill
+                const mappingContainer = document.getElementById('path-mappings');
+                mappingContainer.innerHTML = '';
+                const mappings = cfg.path_mappings || {};
+                for (const [from, to] of Object.entries(mappings)) addMapping(from, to);
+
+                // Video Dirs Backfill
+                renderVideoDirs(cfg.video_dirs || []);
+
+                // Top Status Bar Updates
+                const asrName = cfg.asr_mode === 'local' ? cfg.asr_model : cfg.asr_model_online;
+                document.getElementById('status-asr-model').textContent = asrName || '未配置';
+                const transName = cfg.translate_mode === 'online' ? cfg.translate_model : cfg.translate_model_local;
+                document.getElementById('status-translate-model').textContent = transName || '未配置';
+                const langMap = {'zh-CN':'简体中文','zh-TW':'繁体中文','en':'English','ja':'日本語','ko':'한국어'};
+                document.getElementById('status-lang-value').textContent = langMap[targetLang] || targetLang;
+
+            } catch (e) { console.error('Load config error:', e); }
+        }
+
+        function addMapping(from = '', to = '') {
+            const container = document.getElementById('path-mappings');
+            const row = document.createElement('div');
+            row.className = 'mapping-row';
+            row.style = 'display: flex; gap: 0.4rem; align-items: center;';
+            row.innerHTML = `
+                <input class="map-from" placeholder="远程" value="${from}" style="flex: 1; font-size: 0.75rem;">
+                <span style="color:var(--text-muted); font-size: 0.8rem;">&rarr;</span>
+                <input class="map-to" placeholder="本地" value="${to}" style="flex: 1; font-size: 0.75rem;">
+                <button type="button" class="btn btn-danger" style="padding: 0.2rem 0.4rem; border-radius: 6px;" onclick="this.parentElement.remove()">&times;</button>
+            `;
+            container.appendChild(row);
+        }
+
+        function renderVideoDirs(dirs) {
+            currentVideoDirs = dirs;
+            const list = document.getElementById('video-dirs-list');
+            list.innerHTML = '';
+            dirs.forEach((d, i) => {
+                const item = document.createElement('div');
+                item.style = 'display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; background: #fff; border: 1px solid var(--border); border-radius: 8px; font-size: 0.8rem;';
+                item.innerHTML = `<span>${d}</span><button type="button" class="btn btn-danger" style="padding: 0.1rem 0.35rem;" onclick="removeVideoDir(${i})">&times;</button>`;
+                list.appendChild(item);
+            });
+        }
+        function addVideoDir() {
+            const input = document.getElementById('video-dir-input');
+            const path = input.value.trim();
+            if (path && !currentVideoDirs.includes(path)) {
+                currentVideoDirs.push(path);
+                renderVideoDirs(currentVideoDirs);
+                input.value = '';
+            }
+        }
+        function removeVideoDir(index) {
+            currentVideoDirs.splice(index, 1);
+            renderVideoDirs(currentVideoDirs);
+        }
+
+        document.getElementById('config-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('save-btn'), status = document.getElementById('save-status');
+            btn.disabled = true; btn.textContent = '保存中...';
+            
+            const mappings = {};
+            document.querySelectorAll('.mapping-row').forEach(r => {
+                const f = r.querySelector('.map-from').value.trim();
+                const t = r.querySelector('.map-to').value.trim();
+                if (f && t) mappings[f] = t;
+            });
+
+            const body = {
+                jellyfin_url: document.getElementById('jellyfin_url').value,
+                jellyfin_api_key: document.getElementById('jellyfin_api_key').value,
+                asr_mode: document.getElementById('asr_mode').value,
+                asr_model: document.getElementById('asr_model').value,
+                asr_api_url: document.getElementById('asr_api_url').value,
+                asr_api_key: document.getElementById('asr_api_key').value,
+                asr_model_online: document.getElementById('asr_model_online').value,
+                translate_mode: document.getElementById('translate_mode').value,
+                translate_api_url: document.getElementById('translate_api_url').value,
+                translate_api_key: document.getElementById('translate_api_key').value,
+                translate_model: document.getElementById('translate_model').value,
+                translate_model_local: document.getElementById('translate_model_local').value,
+                translate_prompt_format: 'json',
+                translate_thinking: false,
+                target_language: document.getElementById('target_language').value,
+                path_mappings: mappings,
+                temp_dir: document.getElementById('temp_dir').value,
+                video_dirs: currentVideoDirs
+            };
+
+            try {
+                const resp = await fetch(API_CONFIG, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                if (resp.ok) { status.textContent = '✓ 已成功保存配置'; status.style.color = 'var(--green)'; }
+                else { status.textContent = '❌ 保存失败，请重试'; status.style.color = 'var(--red)'; }
+            } catch (e) { status.textContent = '❌ 网络连接错误'; status.style.color = 'var(--red)'; }
+            
+            btn.disabled = false; btn.textContent = '确认并保存';
+            setTimeout(() => { status.textContent = ''; loadConfig(); }, 3000);
+        });
+
+        // --- Video & Task Logic ---
+        async function scanVideos() {
+            try {
+                const resp = await fetch('/api/videos');
+                const data = await resp.json();
+                renderVideos(data.videos || []);
+            } catch (e) {}
+        }
+
+        function renderVideos(videos) {
+            const grid = document.getElementById('video-grid');
+            const empty = document.getElementById('video-empty');
+            const batchBtn = document.getElementById('batch-gen-btn');
+            document.getElementById('video-select-all').checked = false;
+            selectedVideos.clear();
+            batchBtn.style.display = 'none';
+            grid.innerHTML = '';
+            if (!videos.length) { empty.style.display = 'block'; return; }
+            empty.style.display = 'none';
+
+            // Header row
+            const header = document.createElement('div');
+            header.className = 'video-list-header';
+            header.innerHTML = `<span></span><span class="video-col-name">文件名</span><span class="video-col-path">路径</span><span class="video-col-size">大小</span><span class="video-col-status">状态</span><span class="video-col-actions">操作</span>`;
+            grid.appendChild(header);
+
+            videos.forEach(v => {
+                const row = document.createElement('div');
+                row.className = 'video-row';
+                const sCls = v.processing ? 'processing' : (v.has_subtitle ? 'done' : 'pending');
+                const sTxt = v.processing ? '处理中' : (v.has_subtitle ? '就绪' : '未处理');
+                row.innerHTML = `
+                    <label class="video-row-check"><input type="checkbox" data-video-path="${v.path.replace(/"/g, "&quot;")}" onchange="onVideoSelect(this)"></label>
+                    <span class="video-col-name video-filename" title="${v.name}">${v.name}</span>
+                    <span class="video-col-path video-path" title="${v.path}">${v.path}</span>
+                    <span class="video-col-size">${(v.size / (1024*1024)).toFixed(1)} MB</span>
+                    <span class="video-col-status"><span class="badge ${sCls}">${sTxt}</span></span>
+                    <span class="video-col-actions">
+                        <button class="btn" onclick="openPlayer('${v.path.replace(/'/g,"\\'")}','${v.name.replace(/'/g,"\\'")}')">播放</button>
+                        <button class="btn btn-primary" onclick="genSub('${v.path.replace(/'/g,"\\'")}')">${v.has_subtitle ? '重新生成' : '开始任务'}</button>
+                    </span>`;
+                grid.appendChild(row);
+            });
+        }
+
+        async function genSub(path) {
+            await fetch('/api/videos/subtitle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ video_path: path }) });
+            scanVideos(); loadTasks();
+        }
+
+        let taskOffset = 0, taskFilterStatus = '';
+        function setFilter(btn) {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active', 'btn-primary'));
+            btn.classList.add('active', 'btn-primary');
+            taskFilterStatus = btn.dataset.status;
+            taskOffset = 0;
+            loadTasks();
+        }
+
+        async function loadTasks(delta) {
+            if (delta !== undefined) taskOffset = Math.max(0, taskOffset + delta);
+            const type = document.getElementById('filter-type').value;
+            const params = new URLSearchParams({ limit: 7, offset: taskOffset });
+            if (taskFilterStatus) params.set('status', taskFilterStatus);
+            if (type) params.set('pipeline_type', type);
+            const resp = await fetch(`/api/tasks?${params}`);
+            const data = await resp.json();
+            renderTasks(data.tasks || [], data.total || 0);
+        }
+
+        function renderTasks(tasks, total) {
+            const grid = document.getElementById('task-grid');
+            const empty = document.getElementById('task-empty');
+            const runSection = document.getElementById('running-section');
+            const batchDelBtn = document.getElementById('batch-del-btn');
+            document.getElementById('task-select-all').checked = false;
+            selectedTasks.clear();
+            batchDelBtn.style.display = 'none';
+
+            grid.innerHTML = '';
+
+            // 统计正在处理的任务
+            const runningCount = tasks.filter(t => t.status === 'processing' || t.status === 'pending').length;
+            if (runningCount > 0) {
+                runSection.style.display = '';
+                document.getElementById('running-count').textContent = `${runningCount} 个任务`;
+            } else {
+                runSection.style.display = 'none';
+            }
+
+            if (!tasks.length) { empty.style.display = 'block'; document.getElementById('task-pagination').style.display = 'none'; return; }
+            empty.style.display = 'none';
+            document.getElementById('task-pagination').style.display = 'flex';
+
+            tasks.forEach(t => {
+                const bCls = t.status === 'done' ? 'done' : (t.status === 'failed' ? 'failed' : 'pending');
+                const card = document.createElement('div');
+                card.className = 'task-card';
+                card.style = 'padding: 0.75rem;';
+                card.innerHTML = `
+                    <div class="card-top" style="margin-bottom:0.25rem;">
+                        <label class="task-check" style="display: flex; align-items: center; gap: 0.4rem; flex: 1;">
+                            <input type="checkbox" data-task-id="${t.id}" onchange="onTaskSelect(this)">
+                            <span class="card-title" style="font-size:0.8rem;">${t.item_name || '任务'}</span>
+                        </label>
+                        <span class="badge ${bCls}" style="font-size:0.6rem;">${t.status}</span>
+                    </div>
+                    <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 0.5rem;">${t.pipeline_type} &middot; ${t.stage} &middot; ${t.created_at}</div>
+                    <div class="card-actions">
+                        ${t.status === 'failed' ? `<button class="btn" style="padding:0.2rem 0.4rem;font-size:0.65rem" onclick="retryTask(${t.id})">重试</button>` : ''}
+                        <button class="btn btn-danger" style="padding:0.2rem 0.4rem;font-size:0.65rem" onclick="deleteTask(${t.id})">删除</button>
+                    </div>`;
+                grid.appendChild(card);
+            });
+
+            document.getElementById('task-page-info').textContent = `${taskOffset + 1}-${Math.min(taskOffset + 7, total)} / ${total}`;
+            document.getElementById('task-prev').disabled = taskOffset === 0;
+            document.getElementById('task-next').disabled = taskOffset + 7 >= total;
+        }
+
+        async function retryTask(id) { await fetch(`/api/tasks/${id}/retry`, {method:'POST'}); loadTasks(); }
+        async function deleteTask(id) { if(confirm('确定删除？')){ await fetch(`/api/tasks/${id}`, {method:'DELETE'}); loadTasks(); } }
+
+        // --- Batch Operations ---
+        let selectedVideos = new Set();
+        let selectedTasks = new Set();
+
+        function toggleAllVideos(checked) {
+            document.querySelectorAll('#video-grid input[type="checkbox"]').forEach(cb => {
+                cb.checked = checked;
+                if (checked) selectedVideos.add(cb.dataset.videoPath);
+                else selectedVideos.delete(cb.dataset.videoPath);
+            });
+            document.getElementById('batch-gen-btn').style.display = selectedVideos.size ? '' : 'none';
+        }
+
+        function onVideoSelect(cb) {
+            const path = cb.dataset.videoPath;
+            if (cb.checked) selectedVideos.add(path); else selectedVideos.delete(path);
+            document.getElementById('video-select-all').checked = selectedVideos.size > 0 && document.querySelectorAll('#video-grid input[type="checkbox"]:checked').length === selectedVideos.size;
+            document.getElementById('batch-gen-btn').style.display = selectedVideos.size ? '' : 'none';
+        }
+
+        async function batchGenSub() {
+            if (!selectedVideos.size) return;
+            if (!confirm(`确定为选中的 ${selectedVideos.size} 个视频生成字幕吗？`)) return;
+            const resp = await fetch('/api/videos/subtitle/batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_paths: [...selectedVideos] })
+            });
+            const data = await resp.json();
+            const msg = data.skipped ? `已创建 ${data.task_ids.length} 个任务，跳过 ${data.skipped} 个` : `已创建 ${data.task_ids.length} 个任务`;
+            alert(msg);
+            selectedVideos.clear();
+            scanVideos(); loadTasks();
+        }
+
+        function toggleAllTasks(checked) {
+            document.querySelectorAll('#task-grid input[type="checkbox"]').forEach(cb => {
+                cb.checked = checked;
+                const id = parseInt(cb.dataset.taskId);
+                if (checked) selectedTasks.add(id); else selectedTasks.delete(id);
+            });
+            document.getElementById('batch-del-btn').style.display = selectedTasks.size ? '' : 'none';
+        }
+
+        function onTaskSelect(cb) {
+            const id = parseInt(cb.dataset.taskId);
+            if (cb.checked) selectedTasks.add(id); else selectedTasks.delete(id);
+            document.getElementById('task-select-all').checked = selectedTasks.size > 0 && document.querySelectorAll('#task-grid input[type="checkbox"]:checked').length === selectedTasks.size;
+            document.getElementById('batch-del-btn').style.display = selectedTasks.size ? '' : 'none';
+        }
+
+        async function batchDeleteTasks() {
+            if (!selectedTasks.size) return;
+            if (!confirm(`确定删除选中的 ${selectedTasks.size} 个任务吗？`)) return;
+            await fetch('/api/tasks/batch/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_ids: [...selectedTasks] })
+            });
+            selectedTasks.clear();
+            loadTasks();
+        }
+
+        // --- Player Logic ---
+        let playerSegs = [], playerTrans = [], playerSubMode = 'none';
+        function openPlayer(path, name) {
+            document.getElementById('player-title').textContent = name;
+            document.getElementById('player-video').src = `/api/videos/stream?path=${encodeURIComponent(path)}`;
+            document.getElementById('player-modal').style.display = 'flex';
+            fetch(`/api/videos/subtitle/status?path=${encodeURIComponent(path)}`).then(r => r.json()).then(d => {
+                playerSegs = d.segments || [];
+                playerTrans = d.translated || [];
+                document.getElementById('player-sub-status').textContent = d.progress === 'done' ? '字幕就绪' : '未处理';
+            });
+            document.getElementById('player-video').ontimeupdate = updatePlayerSub;
+        }
+        function closePlayer() {
+            const v = document.getElementById('player-video'); v.pause(); v.src = '';
+            document.getElementById('player-modal').style.display = 'none';
+        }
+        function updatePlayerSub() {
+            if (playerSubMode === 'none') { document.getElementById('player-subtitle-overlay').innerHTML = ''; return; }
+            const ct = document.getElementById('player-video').currentTime;
+            let text = '';
+            if (playerSubMode === 'bilingual') {
+                const s = playerSegs.find(x => ct >= x.start && ct <= x.end);
+                const t = playerTrans.find(x => ct >= x.start && ct <= x.end);
+                if (t) text = t.text + (s ? `<br><small style="font-size: 0.8em; opacity: 0.8;">${s.text}</small>` : '');
+                else if (s) text = s.text;
+            } else {
+                const segs = playerSubMode === 'source' ? playerSegs : playerTrans;
+                const seg = segs.find(x => ct >= x.start && ct <= x.end);
+                if (seg) text = seg.text;
+            }
+            document.getElementById('player-subtitle-overlay').innerHTML = text;
+        }
+        function setPlayerSub(mode) {
+            playerSubMode = mode;
+            document.querySelectorAll('#player-sub-btns .btn').forEach(b => b.classList.toggle('active', b.dataset.sub === mode));
+        }
+
+        async function startTest() {
+            if (!confirm('确定要运行测试字幕任务吗？\n\n这将使用当前配置生成一条测试字幕。')) return;
+            const btn = document.getElementById('topbar-test-btn');
+            btn.classList.add('btn-primary'); btn.textContent = '测试中...';
+            await fetch('/api/test/run', {method:'POST'});
+            setTimeout(() => { btn.classList.remove('btn-primary'); btn.textContent = '测试字幕'; loadTasks(); }, 1500);
+        }
+
+        async function logout() { await fetch('/logout', {method:'POST'}); window.location.href = '/login'; }
+
+        // --- Init ---
+        loadConfig();
+        scanVideos();
+        loadTasks();
+        setInterval(loadTasks, 5000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "jellyfin_url": "http://localhost:8096",
+  "jellyfin_api_key": "",
+  "asr_mode": "local",
+  "asr_model": "Qwen/Qwen3-ASR-0.6B",
+  "asr_api_url": "",
+  "asr_api_key": "",
+  "asr_model_online": "",
+  "translate_mode": "local",
+  "translate_api_url": "https://api.openai.com/v1",
+  "translate_api_key": "",
+  "translate_model": "gpt-4o",
+  "translate_model_local": "Qwen/Qwen3-0.6B",
+  "translate_prompt_format": "json",
+  "translate_thinking": false,
+  "target_language": "zh-CN",
+  "path_mappings": {},
+  "temp_dir": "./tmp",
+  "video_dirs": [
+  ]
+}
