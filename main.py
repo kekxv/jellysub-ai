@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -35,7 +36,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="JellySub-AI")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    cfg = get_config()
+    task_manager.start_worker(preload_hook=lambda: _preload_models(cfg))
+    yield
+    task_manager.stop_worker()
+
+
+app = FastAPI(title="JellySub-AI", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -143,17 +153,6 @@ def _preload_models(cfg):
         _preload_asr_model(cfg.asr_model)
     if cfg.translate_mode == "local" and cfg.translate_model_local:
         _preload_translate_model(cfg.translate_model_local)
-
-
-@app.on_event("startup")
-def startup():
-    cfg = get_config()
-    task_manager.start_worker(preload_hook=lambda: _preload_models(cfg))
-
-
-@app.on_event("shutdown")
-def shutdown():
-    task_manager.stop_worker()
 
 
 # --- 首页 ---
