@@ -56,10 +56,21 @@
                         <button class="btn btn-primary" id="batch-gen-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="batchGenSub()">批量生成字幕</button>
                     </div>
                 </div>
-                <div class="video-list" id="video-grid"></div>
+
+                <!-- Search -->
+                <div class="video-search-bar">
+                    <input type="text" id="video-search-input" placeholder="搜索文件名或路径..." oninput="onVideoSearch()">
+                </div>
+
+                <div class="video-grid" id="video-grid"></div>
                 <div class="empty-state" id="video-empty" style="display: none;">
                     <div class="empty-icon">🎬</div>
                     <p>未发现视频文件，请检查设置中的目录映射。</p>
+                </div>
+                <div class="pagination" id="video-pagination" style="display: none; justify-content: space-between; margin-top: 1.5rem;">
+                    <button class="btn" onclick="changeVideoPage(-1)" id="video-prev-btn">←</button>
+                    <span id="video-page-info" style="font-size: 0.75rem;"></span>
+                    <button class="btn" onclick="changeVideoPage(1)" id="video-next-btn">→</button>
                 </div>
             </section>
 
@@ -413,53 +424,104 @@
         });
 
         // --- Video & Task Logic ---
+        let allVideos = [];
+        let videoPage = 0;
+        const VIDEO_PAGE_SIZE = 12;
+
         async function scanVideos() {
             try {
                 const resp = await fetch('/api/videos');
                 const data = await resp.json();
-                renderVideos(data.videos || []);
+                allVideos = data.videos || [];
+                videoPage = 0;
+                document.getElementById('video-search-input').value = '';
+                renderVideoPage();
             } catch (e) {}
         }
 
-        function renderVideos(videos) {
+        function getFilteredVideos() {
+            const q = document.getElementById('video-search-input').value.trim().toLowerCase();
+            if (!q) return allVideos;
+            return allVideos.filter(v =>
+                v.name.toLowerCase().includes(q) || v.path.toLowerCase().includes(q)
+            );
+        }
+
+        function onVideoSearch() {
+            videoPage = 0;
+            renderVideoPage();
+        }
+
+        function changeVideoPage(delta) {
+            const filtered = getFilteredVideos();
+            const maxPage = Math.max(0, Math.ceil(filtered.length / VIDEO_PAGE_SIZE) - 1);
+            videoPage = Math.max(0, Math.min(maxPage, videoPage + delta));
+            renderVideoPage();
+        }
+
+        function renderVideoPage() {
+            const filtered = getFilteredVideos();
             const grid = document.getElementById('video-grid');
             const empty = document.getElementById('video-empty');
             const batchBtn = document.getElementById('batch-gen-btn');
+            const pagin = document.getElementById('video-pagination');
             document.getElementById('video-select-all').checked = false;
             selectedVideos.clear();
             batchBtn.style.display = 'none';
             grid.innerHTML = '';
-            if (!videos.length) { empty.style.display = 'block'; return; }
+
+            if (!filtered.length) {
+                empty.style.display = 'block';
+                pagin.style.display = 'none';
+                return;
+            }
             empty.style.display = 'none';
 
-            // Header row
-            const header = document.createElement('div');
-            header.className = 'video-list-header';
-            header.innerHTML = `<span></span><span class="video-col-name">文件名</span><span class="video-col-path">路径</span><span class="video-col-size">大小</span><span class="video-col-status">状态</span><span class="video-col-actions">操作</span>`;
-            grid.appendChild(header);
+            const totalPages = Math.max(1, Math.ceil(filtered.length / VIDEO_PAGE_SIZE));
+            videoPage = Math.min(videoPage, totalPages - 1);
+            const start = videoPage * VIDEO_PAGE_SIZE;
+            const pageVideos = filtered.slice(start, start + VIDEO_PAGE_SIZE);
 
-            videos.forEach(v => {
-                const row = document.createElement('div');
-                row.className = 'video-row';
-                const sCls = v.processing ? 'processing' : (v.has_subtitle ? 'done' : 'pending');
-                const sTxt = v.processing ? '处理中' : (v.has_subtitle ? '就绪' : '未处理');
-                row.innerHTML = `
-                    <label class="video-row-check"><input type="checkbox" data-video-path="${v.path.replace(/"/g, "&quot;")}" onchange="onVideoSelect(this)"></label>
-                    <span class="video-col-name video-filename" title="${v.name}">${v.name}</span>
-                    <span class="video-col-path video-path" title="${v.path}">${v.path}</span>
-                    <span class="video-col-size">${(v.size / (1024*1024)).toFixed(1)} MB</span>
-                    <span class="video-col-status"><span class="badge ${sCls}">${sTxt}</span></span>
-                    <span class="video-col-actions">
-                        <button class="btn" onclick="openPlayer('${v.path.replace(/'/g,"\\'")}','${v.name.replace(/'/g,"\\'")}')">播放</button>
-                        <button class="btn btn-primary" onclick="genSub('${v.path.replace(/'/g,"\\'")}')">${v.has_subtitle ? '重新生成' : '开始任务'}</button>
-                    </span>`;
-                grid.appendChild(row);
+            pageVideos.forEach(v => {
+                const card = document.createElement('div');
+                card.className = 'video-card';
+                const sCls = v.processing ? 'pending' : (v.has_subtitle ? 'done' : 'pending');
+                const sTxt = v.processing ? '处理中' : (v.has_subtitle ? '已有字幕' : '待处理');
+                card.innerHTML = `
+                    <div class="card-top">
+                        <label class="card-check">
+                            <input type="checkbox" data-video-path="${v.path.replace(/"/g, "&quot;")}" onchange="onVideoSelect(this)">
+                            <span class="card-title" title="${v.name}">${v.name}</span>
+                        </label>
+                        <span class="badge ${sCls}">${sTxt}</span>
+                    </div>
+                    <div class="card-meta">
+                        <span title="${v.path}">${v.path}</span>
+                    </div>
+                    <div class="card-meta">
+                        <span>${(v.size / (1024 * 1024)).toFixed(1)} MB</span>
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn" onclick="openPlayer('${v.path.replace(/'/g, "\\'")}','${v.name.replace(/'/g, "\\'")}')">播放</button>
+                        <button class="btn btn-primary" onclick="genSub('${v.path.replace(/'/g, "\\'")}')">${v.has_subtitle ? '重新生成' : '生成字幕'}</button>
+                    </div>`;
+                grid.appendChild(card);
             });
+
+            // Pagination
+            if (totalPages > 1) {
+                pagin.style.display = 'flex';
+                document.getElementById('video-page-info').textContent = `第 ${videoPage + 1} / ${totalPages} 页 (共 ${filtered.length} 个)`;
+                document.getElementById('video-prev-btn').disabled = videoPage === 0;
+                document.getElementById('video-next-btn').disabled = videoPage >= totalPages - 1;
+            } else {
+                pagin.style.display = 'none';
+            }
         }
 
         async function genSub(path) {
             await fetch('/api/videos/subtitle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ video_path: path }) });
-            scanVideos(); loadTasks();
+            await scanVideos(); loadTasks();
         }
 
         let taskOffset = 0, taskFilterStatus = '';
@@ -567,7 +629,7 @@
             const msg = data.skipped ? `已创建 ${data.task_ids.length} 个任务，跳过 ${data.skipped} 个` : `已创建 ${data.task_ids.length} 个任务`;
             alert(msg);
             selectedVideos.clear();
-            scanVideos(); loadTasks();
+            await scanVideos(); loadTasks();
         }
 
         function toggleAllTasks(checked) {

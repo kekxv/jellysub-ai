@@ -7,7 +7,17 @@ logger = logging.getLogger(__name__)
 
 _SUBTITLE_EXTENSIONS = (".srt", ".vtt", ".ass")
 
-_CHINESE_HINTS = ("zh", "chi", "chs", "cht", "cn", "chs", "zh-CN", "zh-TW", "Chinese")
+_CHINESE_HINTS = ("zh", "chi", "chs", "cht", "cn", "zh-CN", "zh-TW", "Chinese")
+
+# Tags that indicate a Chinese subtitle file when appearing as the last dot-separated segment
+_CHINESE_FILE_TAGS = ("zh-cn", "zh-tw", "chi", "chs", "cht", "cn", "zho", "chinese")
+
+
+def _is_chinese_subtitle(path: Path) -> bool:
+    """根据文件名判断是否为中文字幕。"""
+    stem = path.stem.lower()
+    last_tag = stem.rsplit(".", 1)[-1] if "." in stem else ""
+    return last_tag in _CHINESE_FILE_TAGS or any(h.lower() in stem for h in _CHINESE_HINTS)
 
 
 def find_existing_subtitle(media_dir: str, media_name: str, language_hint: str = "zh") -> str | None:
@@ -19,9 +29,8 @@ def find_existing_subtitle(media_dir: str, media_name: str, language_hint: str =
     for sub_path in sorted(media_dir_path.iterdir()):
         if sub_path.suffix.lower() not in _SUBTITLE_EXTENSIONS:
             continue
-        # 文件名需包含媒体名前缀或语言提示
         stem = sub_path.stem.lower()
-        if media_name.lower() not in stem and not any(h in stem for h in _CHINESE_HINTS):
+        if media_name.lower() not in stem and not _is_chinese_subtitle(sub_path):
             continue
         if is_valid_subtitle(str(sub_path)):
             logger.info("Found valid existing subtitle: %s", sub_path)

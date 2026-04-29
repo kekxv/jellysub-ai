@@ -443,9 +443,29 @@ async def api_test_run(request: Request):
 _VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm"}
 
 
-def _scan_videos(dirs: list[str]) -> list[dict]:
-    """扫描目录中的视频文件。"""
-    # Get currently processing video paths from DB
+_SUBTITLE_EXTS = (".srt", ".vtt", ".ass")
+_CHINESE_TAGS = ("zh-cn", "zh-tw", "chi", "chs", "cht", "cn", "zho", "chinese")
+
+
+def _has_chinese_subtitle(fpath: Path) -> bool:
+    """检查视频文件同级目录中是否存在中文字幕。"""
+    media_dir = fpath.parent
+    stem_lower = fpath.stem.lower()
+    for sub in media_dir.iterdir():
+        if sub.suffix.lower() not in _SUBTITLE_EXTS:
+            continue
+        sub_stem = sub.stem.lower()
+        # 匹配：视频名.default.{lang}.srt 或 视频名.{tag}.srt
+        if not sub_stem.startswith(stem_lower):
+            continue
+        last_tag = sub_stem.rsplit(".", 1)[-1] if "." in sub_stem else ""
+        if last_tag in _CHINESE_TAGS:
+            return True
+    return False
+
+
+def _scan_videos(dirs: list[str], max_depth: int = 5) -> list[dict]:
+    """递归扫描目录中的视频文件，支持中文路径和含空格路径，最大深度 5 级。"""
     processing_tasks = task_manager.list_tasks(status="processing", limit=100)
     processing_paths = {t["video_path"] for t in processing_tasks}
 
@@ -454,20 +474,24 @@ def _scan_videos(dirs: list[str]) -> list[dict]:
         dir_path = Path(d)
         if not dir_path.is_dir():
             continue
-        for f in sorted(dir_path.iterdir()):
-            if f.is_file() and f.suffix.lower() in _VIDEO_EXTS:
-                has_sub = any(
-                    f.with_suffix(f".default.{lang}.srt").exists()
-                    for lang in ["zh-CN", "zh-TW", "en", "ja", "ko"]
-                )
-                videos.append({
-                    "id": str(f),
-                    "name": f.name,
-                    "path": str(f),
-                    "size": f.stat().st_size,
-                    "has_subtitle": has_sub,
-                    "processing": str(f) in processing_paths,
-                })
+        base_depth = len(dir_path.parts)
+        for root, _subdirs, files in os.walk(dir_path):
+            current_depth = len(Path(root).parts) - base_depth
+            if current_depth >= max_depth:
+                _subdirs.clear()
+                continue
+            for fname in files:
+                fpath = Path(root) / fname
+                if fpath.suffix.lower() in _VIDEO_EXTS:
+                    videos.append({
+                        "id": str(fpath),
+                        "name": fpath.name,
+                        "path": str(fpath),
+                        "size": fpath.stat().st_size,
+                        "has_subtitle": _has_chinese_subtitle(fpath),
+                        "processing": str(fpath) in processing_paths,
+                    })
+    videos.sort(key=lambda v: v["path"])
     return videos
 
 
