@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     tags: [ 'v*' ]
     paths-ignore:
+      - 'Dockerfile-Gpu'
       - '**.md'
       - 'tests/**'
       - '**/test_*.py'
