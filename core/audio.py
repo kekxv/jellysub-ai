@@ -65,3 +65,22 @@ async def has_internal_subtitle(media_path: str) -> bool:
     except Exception:
         logger.exception("ffprobe subtitle check failed")
         return False
+
+
+def get_audio_duration(audio_path: str) -> float:
+    """获取音频文件时长（秒），返回 0 表示无法获取。"""
+    cmd = [
+        "ffprobe",
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format",
+        audio_path,
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=10)
+        if proc.returncode != 0:
+            return 0.0
+        data = json.loads(proc.stdout)
+        return float(data.get("format", {}).get("duration", 0))
+    except Exception:
+        return 0.0

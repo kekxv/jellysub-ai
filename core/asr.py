@@ -250,11 +250,37 @@ def run_asr(
     model = _load_model(model_name)
     logger.info("Running ASR on: %s", audio_path)
 
+    # 获取音频时长，长音频时启动后台进度日志
+    from core.audio import get_audio_duration
+    import threading
+
+    duration = get_audio_duration(audio_path)
+    _asr_done = threading.Event()
+    _asr_start = time.time()
+
+    def _asr_progress_logger():
+        while not _asr_done.is_set():
+            elapsed = time.time() - _asr_start
+            if duration > 0:
+                pct = min(elapsed / (duration * 0.5) * 100, 100)
+                logger.info("ASR progress: %.0f%% (%.1f / %.1f min)", pct, elapsed / 60, duration / 60)
+            else:
+                logger.info("ASR running... elapsed %.1f min", elapsed / 60)
+            _asr_done.wait(30)
+
+    if duration > 60:
+        threading.Thread(target=_asr_progress_logger, daemon=True).start()
+
     results = model.transcribe(
         audio=audio_path,
         language=None,
         return_time_stamps=True,
     )
+
+    _asr_done.set()
+    elapsed = time.time() - _asr_start
+    if duration > 60:
+        logger.info("ASR completed in %.1f min", elapsed / 60)
 
     if not results:
         logger.warning("ASR returned no results for %s", audio_path)

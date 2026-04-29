@@ -145,27 +145,8 @@ def _preload_models(cfg):
         _preload_translate_model(cfg.translate_model_local)
 
 
-def _start_idle_checker():
-    """后台线程定期检查模型空闲超时并释放。"""
-    from env_config import MODEL_IDLE_TIMEOUT
-    from core.asr import _check_model_idle as _check_asr
-    from core.translate import _check_model_idle as _check_translate
-
-    def _check_loop():
-        import time
-        timeout = MODEL_IDLE_TIMEOUT
-        while True:
-            time.sleep(30)
-            if timeout > 0:
-                _check_asr(timeout)
-                _check_translate(timeout)
-
-    threading.Thread(target=_check_loop, daemon=True).start()
-
-
 @app.on_event("startup")
 def startup():
-    _start_idle_checker()
     cfg = get_config()
     task_manager.start_worker(preload_hook=lambda: _preload_models(cfg))
 

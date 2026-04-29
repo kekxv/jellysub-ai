@@ -24,11 +24,11 @@ WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "")
 MODEL_SOURCE: str = os.getenv("MODEL_SOURCE", "")
 
 # --- 模型空闲超时 ---
-# 空闲 N 秒后自动释放模型，降低内存压力。0 表示不释放。默认 180 秒（3 分钟）。
+# 空闲 N 秒后自动释放模型，降低内存压力。0 表示不释放（默认不释放）。
 try:
-    MODEL_IDLE_TIMEOUT: int = int(os.getenv("MODEL_IDLE_TIMEOUT", "180"))
+    MODEL_IDLE_TIMEOUT: int = int(os.getenv("MODEL_IDLE_TIMEOUT", "0"))
 except ValueError:
-    MODEL_IDLE_TIMEOUT = 180
+    MODEL_IDLE_TIMEOUT = 0
 
 # --- 启动检查 ---
 _warnings: list[str] = []
