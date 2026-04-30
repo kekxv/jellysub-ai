@@ -5,7 +5,7 @@ import json
 import logging
 import subprocess
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 async def extract_audio(media_path: str, output_path: str) -> bool:

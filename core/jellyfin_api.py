@@ -4,7 +4,7 @@ import logging
 
 import httpx
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 class JellyfinClient:

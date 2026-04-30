@@ -13,8 +13,10 @@ dependencies = [
     "torch>=2.0",
     "sentencepiece>=0.2.0",
     "qwen-asr>=0.0.1",
+    "funasr>=1.0",
     "python-dotenv>=1.0",
     "pyotp>=2.9",
+    "silero-vad>=5.0",
 ]
 
 [tool.setuptools]

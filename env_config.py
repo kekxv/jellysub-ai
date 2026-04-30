@@ -5,7 +5,7 @@ import os
 
 from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 # 加载 .env 文件（系统环境变量优先）
 load_dotenv()
@@ -29,6 +29,13 @@ try:
     MODEL_IDLE_TIMEOUT: int = int(os.getenv("MODEL_IDLE_TIMEOUT", "0"))
 except ValueError:
     MODEL_IDLE_TIMEOUT = 0
+
+# --- 内存保护 ---
+# 最大内存占用上限（GB），0 表示不限制。
+try:
+    MAX_MEMORY_GB: float = float(os.getenv("MAX_MEMORY_GB", "0"))
+except ValueError:
+    MAX_MEMORY_GB = 0.0
 
 # --- 启动检查 ---
 _warnings: list[str] = []

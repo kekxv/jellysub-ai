@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 _CONFIG_PATH = Path(__file__).parent / "config.json"
 
@@ -16,11 +16,13 @@ class AppConfig(BaseModel):
     jellyfin_api_key: str = ""
 
     # ASR 配置
-    asr_mode: str = "local"           # "local" | "online"
+    asr_engine: str = "qwen3-asr"     # "qwen3-asr" | "sensevoice" | "openai"
+    asr_mode: str = "local"             # 保留向后兼容: "local" | "online"
     asr_model: str = "Qwen/Qwen3-ASR-0.6B"   # 本地模型名
-    asr_api_url: str = ""             # 在线 API 地址
-    asr_api_key: str = ""             # 在线 API 密钥
-    asr_model_online: str = ""        # 在线模型名
+    asr_language: str = "auto"          # "auto" | "zh" | "en" | "ja" | "ko" | "yue"
+    asr_api_url: str = ""               # 在线 API 地址
+    asr_api_key: str = ""               # 在线 API 密钥
+    asr_model_online: str = ""          # 在线模型名
 
     # 翻译配置
     translate_mode: str = "local"     # "online" | "local"

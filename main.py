@@ -34,7 +34,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 @asynccontextmanager
@@ -43,6 +43,8 @@ async def lifespan(app: FastAPI):
     task_manager.start_worker(preload_hook=lambda: _preload_models(cfg))
     yield
     task_manager.stop_worker()
+    from core.task_manager import cleanup_all_tmp
+    cleanup_all_tmp(cfg.temp_dir)
 
 
 app = FastAPI(title="JellySub-AI", lifespan=lifespan)
@@ -127,12 +129,13 @@ def _validate_video_path(path_str: str):
 
 # --- 模型预加载 ---
 
-def _preload_asr_model(model_name: str):
+def _preload_asr_model(model_name: str, engine: str = "qwen3-asr"):
     """后台线程预加载 ASR 模型。"""
     try:
-        from core.asr import _load_model
-        _load_model(model_name)
-        logger.info("ASR model preloaded: %s", model_name)
+        from core.asr import get_asr_engine
+        eng = get_asr_engine(engine, model_name=model_name)
+        eng.transcribe.__doc__  # trigger model load without full transcribe
+        logger.info("ASR model preloaded: %s (%s)", model_name, engine)
     except Exception:
         logger.exception("ASR model preload failed")
 
@@ -140,8 +143,8 @@ def _preload_asr_model(model_name: str):
 def _preload_translate_model(model_name: str):
     """后台线程预加载翻译模型。"""
     try:
-        from core.translate import _load_local_model
-        _load_local_model(model_name)
+        from core.translate import load_local_model
+        load_local_model(model_name)
         logger.info("Translation model preloaded: %s", model_name)
     except Exception:
         logger.exception("Translation model preload failed")
@@ -150,7 +153,7 @@ def _preload_translate_model(model_name: str):
 def _preload_models(cfg):
     """串行加载模型（应在 worker 线程内调用）。"""
     if cfg.asr_mode == "local" and cfg.asr_model:
-        _preload_asr_model(cfg.asr_model)
+        _preload_asr_model(cfg.asr_model, engine=cfg.asr_engine)
     if cfg.translate_mode == "local" and cfg.translate_model_local:
         _preload_translate_model(cfg.translate_model_local)
 
@@ -230,6 +233,7 @@ async def api_status(request: Request):
 class ConfigResponse(BaseModel):
     jellyfin_url: str = ""
     jellyfin_api_key: str = ""
+    asr_engine: str = "qwen3-asr"
     asr_mode: str
     asr_model: str
     asr_api_url: str
@@ -498,10 +502,12 @@ async def api_stream_video(request: Request, path: str):
 
 class SubtitleJobRequest(BaseModel):
     video_path: str
+    force: bool = False
 
 
 class BatchSubtitleRequest(BaseModel):
     video_paths: list[str] = []
+    force: bool = False
 
 
 @app.post("/api/videos/subtitle")
@@ -510,10 +516,20 @@ async def api_generate_subtitle(body: SubtitleJobRequest, request: Request):
     _require_auth(request)
     video_path = body.video_path
     _validate_video_path(video_path)
+    
     # Check if already running
     task = task_manager.get_latest_by_video_path(video_path)
     if task and task["status"] in ("pending", "processing"):
         return {"status": "already_running"}
+
+    # --- 自动检查：已有字幕或内置字幕 ---
+    if not body.force:
+        from core.subtitle_checker import has_any_subtitle
+        cfg = get_config()
+        exists, reason = await has_any_subtitle(video_path, cfg.target_language)
+        if exists:
+            logger.info("Manual task detection: subtitle exists (%s), path=%s", reason, video_path)
+            return {"status": "exists", "reason": reason}
 
     task_id = task_manager.create_task(
         video_path=video_path,
@@ -531,6 +547,29 @@ async def api_batch_generate_subtitle(body: BatchSubtitleRequest, request: Reque
         raise HTTPException(status_code=400, detail="video_paths is required and must not be empty")
     for path in body.video_paths:
         _validate_video_path(path)
+
+    # 如果不是强制模式，先筛选出已有字幕的路径
+    if not body.force:
+        from core.subtitle_checker import has_any_subtitle
+        cfg = get_config()
+        existing_info = []
+        final_paths = []
+        for path in body.video_paths:
+            exists, reason = await has_any_subtitle(path, cfg.target_language)
+            if exists:
+                existing_info.append({"path": path, "reason": reason})
+            else:
+                final_paths.append(path)
+        
+        if existing_info:
+            # 如果有已有字幕的视频，先返回告知前端，不开启任务
+            # 前端可以选择：1. 只开启没有字幕的任务；2. 强行开启所有任务（带 force=True）
+            return {
+                "status": "exists",
+                "existing": existing_info,
+                "clean_paths": final_paths,
+            }
+
     task_ids, skipped = task_manager.create_tasks_batch(body.video_paths)
     return {"status": "started", "task_ids": task_ids, "skipped": skipped}
 

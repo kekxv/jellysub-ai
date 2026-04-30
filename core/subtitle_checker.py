@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 _SUBTITLE_EXTENSIONS = (".srt", ".vtt", ".ass")
 
@@ -66,3 +66,25 @@ def is_valid_subtitle(filepath: str) -> bool:
         return False
 
     return True
+
+
+async def has_any_subtitle(video_path: str, target_lang: str = "zh") -> tuple[bool, str]:
+    """检查是否已有任何字幕（内置或外置）。
+    
+    Returns: (bool, reason)
+    """
+    vpath = Path(video_path)
+    media_dir = str(vpath.parent)
+    media_name = vpath.stem
+
+    # 1. 检查外置
+    existing = find_existing_subtitle(media_dir, media_name, target_lang)
+    if existing and is_valid_subtitle(existing):
+        return True, f"external: {Path(existing).name}"
+
+    # 2. 检查内置
+    from core.audio import has_internal_subtitle
+    if await has_internal_subtitle(video_path):
+        return True, "internal subtitle stream"
+
+    return False, ""

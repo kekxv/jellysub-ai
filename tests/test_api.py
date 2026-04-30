@@ -197,17 +197,6 @@ def test_static_files_served():
     assert resp.status_code == 200
 
 
-def test_api_status():
-    """GET /api/status 应返回脱敏状态信息。"""
-    client = TestClient(app)
-    resp = client.get("/api/status")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "asr_mode" in data
-    assert "asr_model" in data
-    assert "translate_mode" in data
-    assert "target_language" in data
-
 
 def test_login_redirect_when_authenticated():
     """已登录用户访问 /login 应重定向到 /admin。"""

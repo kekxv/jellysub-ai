@@ -1,8 +1,9 @@
 {
   "jellyfin_url": "http://localhost:8096",
   "jellyfin_api_key": "",
+  "asr_engine": "sensevoice",
   "asr_mode": "local",
-  "asr_model": "Qwen/Qwen3-ASR-0.6B",
+  "asr_model": "iic/SenseVoiceSmall",
   "asr_api_url": "",
   "asr_api_key": "",
   "asr_model_online": "",

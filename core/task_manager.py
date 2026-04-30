@@ -10,7 +10,7 @@ from pathlib import Path
 
 from config import get_config
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 # Pipeline stage order
 _PIPELINE_STAGES = [
@@ -27,6 +27,40 @@ _STAGE_PROGRESS = {
     "writing_srt": 95,
     "done": 100,
 }
+
+
+def _cleanup_tmp_files(tmp_dir: Path, audio_path: str):
+    """清理任务相关的临时文件（音频 + VAD 分块）。"""
+    try:
+        # 删除主临时音频
+        Path(audio_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+    # 清理同一批次的 VAD 分块文件（同 SHA256 前缀）
+    try:
+        prefix = Path(audio_path).stem  # e.g. "task_abc123def456_task"
+        for f in tmp_dir.glob(f"{prefix}*"):
+            f.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def cleanup_all_tmp(tmp_dir: str = "./tmp"):
+    """清理整个 tmp 目录（应用关闭时调用）。"""
+    path = Path(tmp_dir)
+    if not path.exists():
+        return
+    for f in path.iterdir():
+        try:
+            if f.is_file():
+                f.unlink()
+        except Exception:
+            pass
+    try:
+        path.rmdir()
+    except OSError:
+        pass  # 目录非空时忽略
+    logger.info("Tmp directory cleaned up: %s", tmp_dir)
 
 
 class TaskManager:
@@ -367,11 +401,15 @@ class TaskManager:
         task_id = task["id"]
         video_path = task["video_path"]
         cfg = get_config()
-        media_name = Path(video_path).stem
         media_dir = str(Path(video_path).parent)
+        media_name = Path(video_path).stem
         tmp_dir = Path(cfg.temp_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        audio_path = str(tmp_dir / f"{media_name}_task.wav")
+
+        # 用时间戳+路径SHA256作为临时文件名，避免中文/特殊字符问题
+        import hashlib as _hashlib
+        name_hash = _hashlib.sha256(video_path.encode("utf-8")).hexdigest()[:12]
+        audio_path = str(tmp_dir / f"task_{name_hash}_task.wav")
 
         logger.info("Executing task %d: %s", task_id, video_path)
         self._update_task(task_id, status="processing", started_at=time.strftime("%Y-%m-%d %H:%M:%S"))
@@ -383,7 +421,9 @@ class TaskManager:
 
             import asyncio
             from core.audio import extract_audio
+            from core.utils import check_memory_limit
 
+            check_memory_limit()
             ok = asyncio.new_event_loop().run_until_complete(
                 extract_audio(video_path, audio_path)
             )
@@ -391,46 +431,91 @@ class TaskManager:
                 raise RuntimeError("Audio extraction failed")
 
             # --- Stage 2: ASR ---
-            self._update_task(task_id, stage="asr", progress=_STAGE_PROGRESS["asr"])
+            # 重试时检查是否已有 ASR 结果，跳过耗时的 ASR 步骤
+            segments = None
+            detected_lang = ""
+            if task.get("source_segments"):
+                import json as _json
+                segments = _json.loads(task["source_segments"])
+                if not segments:
+                    logger.info("Task %d: previous ASR found no speech, skipping", task_id)
+                    self._update_task(task_id, stage="done", progress=100, status="done")
+                    self._record_stage(task_id, "done")
+                    return
+                logger.info("Task %d: ASR result already exists, skipping ASR (%d segments)", task_id, len(segments))
+            else:
+                self._update_task(task_id, stage="asr", progress=_STAGE_PROGRESS["asr"])
+                from core.asr import run_asr, set_asr_busy
+                from core.utils import check_memory_limit
 
-            from core.asr import run_asr
+                check_memory_limit()
+                set_asr_busy(True)
+                try:
+                    segments, detected_lang = run_asr(
+                        audio_path,
+                        mode=cfg.asr_mode,
+                        engine=cfg.asr_engine,
+                        model_name=cfg.asr_model,
+                        asr_language=cfg.asr_language,
+                        api_url=cfg.asr_api_url,
+                        api_key=cfg.asr_api_key,
+                        model_online=cfg.asr_model_online,
+                        use_vad=True,
+                        vad_min_silence_ms=500,
+                    )
 
-            segments, detected_lang = run_asr(
-                audio_path,
-                mode=cfg.asr_mode,
-                model_name=cfg.asr_model,
-                api_url=cfg.asr_api_url,
-                api_key=cfg.asr_api_key,
-                model_online=cfg.asr_model_online,
-            )
-            if not segments:
-                raise RuntimeError("ASR produced no segments")
+                finally:
+                    set_asr_busy(False)
 
-            self.set_source_segments(task_id, segments)
+                if not segments:
+                    logger.info("Task %d: no speech detected, skipping ASR and translation", task_id)
+                    self._update_task(task_id, stage="done", progress=100, status="done")
+                    self._record_stage(task_id, "done")
+                    return  # 无语音，直接结束
+                self.set_source_segments(task_id, segments)
+
+            # --- 阶段间隙：强制释放 ASR 占用的显存，为翻译留出空间 ---
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif torch.backends.mps.is_available():
+                torch.mps.empty_cache()
 
             # --- Stage 3: Translate ---
-            self._update_task(task_id, stage="translating", progress=_STAGE_PROGRESS["translating"])
+            # 重试时检查是否已有翻译结果
+            translated = None
+            if task.get("translated_segments"):
+                import json as _json
+                translated = _json.loads(task["translated_segments"])
+                logger.info("Task %d: translation result already exists (%d segments)", task_id, len(translated))
+            else:
+                self._update_task(task_id, stage="translating", progress=_STAGE_PROGRESS["translating"])
+                from core.translate import translate_segments, set_translate_busy
+                from core.utils import check_memory_limit
 
-            from core.translate import translate_segments
+                check_memory_limit()
+                set_translate_busy(True)
+                try:
+                    translated = asyncio.new_event_loop().run_until_complete(
+                        translate_segments(
+                            segments,
+                            cfg.target_language,
+                            mode=cfg.translate_mode,
+                            api_url=cfg.translate_api_url,
+                            api_key=cfg.translate_api_key,
+                            model=cfg.translate_model,
+                            model_local=cfg.translate_model_local,
+                            thinking=cfg.translate_thinking,
+                            prompt_format=cfg.translate_prompt_format,
+                            source_lang=detected_lang,
+                        )
+                    )
+                finally:
+                    set_translate_busy(False)
 
-            translated = asyncio.new_event_loop().run_until_complete(
-                translate_segments(
-                    segments,
-                    cfg.target_language,
-                    mode=cfg.translate_mode,
-                    api_url=cfg.translate_api_url,
-                    api_key=cfg.translate_api_key,
-                    model=cfg.translate_model,
-                    model_local=cfg.translate_model_local,
-                    thinking=cfg.translate_thinking,
-                    prompt_format=cfg.translate_prompt_format,
-                    source_lang=detected_lang,
-                )
-            )
-            if not translated:
-                raise RuntimeError("Translation failed")
-
-            self.set_translated_segments(task_id, translated)
+                if not translated:
+                    raise RuntimeError("Translation failed")
+                self.set_translated_segments(task_id, translated)
 
             # --- Stage 4: Write SRT ---
             self._update_task(task_id, stage="writing_srt", progress=_STAGE_PROGRESS["writing_srt"])
@@ -481,7 +566,12 @@ class TaskManager:
                 )
 
         finally:
-            try:
-                Path(audio_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+            _cleanup_tmp_files(tmp_dir, audio_path)
+            # 检查模型空闲超时并释放，降低长时运行内存压力
+            if cfg := get_config():
+                from env_config import MODEL_IDLE_TIMEOUT
+                if MODEL_IDLE_TIMEOUT > 0:
+                    from core.asr import check_asr_idle
+                    from core.translate import check_model_idle
+                    check_asr_idle(MODEL_IDLE_TIMEOUT)
+                    check_model_idle(MODEL_IDLE_TIMEOUT)

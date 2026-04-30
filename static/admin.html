@@ -5,9 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理后台 — JellySub-AI</title>
     <link rel="stylesheet" href="/static/style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <header class="topbar">
@@ -161,16 +158,15 @@
                         <div class="settings-card">
                             <h3 class="settings-section-title">AI 处理引擎</h3>
                             <div style="margin-bottom: 1.5rem;">
-                                <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:0.5rem;">语音识别 (ASR) 模式</label>
-                                <div class="mode-tabs" id="asr-tabs">
-                                    <button type="button" class="tab-btn" data-mode="local" onclick="switchTab('asr','local')">本地部署</button>
-                                    <button type="button" class="tab-btn" data-mode="online" onclick="switchTab('asr','online')">在线 API</button>
+                                <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:0.5rem;">语音识别 (ASR)</label>
+                                <div class="tag-selector" id="asr-engine-tags" style="margin-bottom: 0.5rem;">
+                                    <div class="tag-option" data-value="Qwen/Qwen3-ASR-0.6B">Qwen3-ASR 0.6B</div>
+                                    <div class="tag-option" data-value="Qwen/Qwen3-ASR-1.7B">Qwen3-ASR 1.7B</div>
+                                    <div class="tag-option" data-value="iic/SenseVoiceSmall">SenseVoiceSmall</div>
+                                    <div class="tag-option" data-value="__openai__">OpenAI 兼容 API</div>
                                 </div>
+                                <input type="hidden" id="asr_engine">
                                 <input type="hidden" id="asr_mode">
-                                <div id="asr-local-fields" class="form-group">
-                                    <label>本地 ASR 模型名称</label>
-                                    <input type="text" id="asr_model" placeholder="例如: Qwen/Qwen3-ASR-0.6B">
-                                </div>
                                 <div id="asr-online-fields" style="display:none;">
                                     <div class="form-group"><label>ASR API 地址</label><input type="url" id="asr_api_url"></div>
                                     <div class="form-group"><label>ASR API Key</label><input type="password" id="asr_api_key"></div>
@@ -179,23 +175,18 @@
                             </div>
 
                             <div style="margin-bottom: 1rem;">
-                                <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:0.5rem;">翻译引擎模式</label>
-                                <div class="mode-tabs" id="translate-tabs">
-                                    <button type="button" class="tab-btn" data-mode="online" onclick="switchTab('translate','online')">在线 API</button>
-                                    <button type="button" class="tab-btn" data-mode="local" onclick="switchTab('translate','local')">本地模型</button>
+                                <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:0.5rem;">翻译引擎</label>
+                                <div class="tag-selector" id="translate-engine-tags" style="margin-bottom: 0.5rem;">
+                                    <div class="tag-option" data-value="Qwen/Qwen3-0.6B">Qwen3 0.6B (本地)</div>
+                                    <div class="tag-option" data-value="Qwen/Qwen3-1.7B">Qwen3 1.7B (本地)</div>
+                                    <div class="tag-option" data-value="__online__">在线 API</div>
                                 </div>
                                 <input type="hidden" id="translate_mode">
-                                <div id="translate-online-fields" class="form-group">
-                                    <label>翻译 API 地址</label>
-                                    <input type="url" id="translate_api_url">
-                                    <label style="margin-top:0.5rem;">翻译 API Key</label>
-                                    <input type="password" id="translate_api_key">
-                                    <label style="margin-top:0.5rem;">翻译模型名称</label>
-                                    <input type="text" id="translate_model">
-                                </div>
-                                <div id="translate-local-fields" style="display:none;" class="form-group">
-                                    <label>本地翻译模型名称</label>
-                                    <input type="text" id="translate_model_local">
+                                <input type="hidden" id="translate_model_local">
+                                <div id="translate-online-fields" style="display:none;">
+                                    <div class="form-group"><label>翻译 API 地址</label><input type="url" id="translate_api_url"></div>
+                                    <div class="form-group"><label>翻译 API Key</label><input type="password" id="translate_api_key"></div>
+                                    <div class="form-group"><label>翻译模型名称</label><input type="text" id="translate_model"></div>
                                 </div>
                             </div>
                         </div>
@@ -271,8 +262,35 @@
         function openSettings() { document.getElementById('settings-modal').style.display = 'flex'; }
         function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
 
+        function onTranslateEngineSelect(value) {
+            const mapping = TRANSLATE_ENGINE_MAP[value];
+            if (!mapping) return;
+            document.getElementById('translate_mode').value = mapping.mode;
+            if (mapping.model_local) {
+                document.getElementById('translate_model_local').value = mapping.model_local;
+            }
+            document.getElementById('translate-online-fields').style.display = mapping.mode === 'online' ? '' : 'none';
+        }
+
+        function selectTranslateEngine(value) {
+            document.querySelectorAll('#translate-engine-tags .tag-option').forEach(opt => {
+                opt.classList.toggle('active', opt.dataset.value === value);
+            });
+            onTranslateEngineSelect(value);
+        }
+
+        // Initialize Translate Engine Tag Selector
+        document.querySelectorAll('#translate-engine-tags .tag-option').forEach(opt => {
+            opt.onclick = () => selectTranslateEngine(opt.dataset.value);
+        });
+
         function switchTab(group, mode) {
             document.getElementById(group + '_mode').value = mode;
+            if (group === 'translate') {
+                // 翻译使用标签选择器，不需要 tabs
+                document.getElementById('translate-online-fields').style.display = mode === 'online' ? '' : 'none';
+                return;
+            }
             document.getElementById(group + '-tabs').querySelectorAll('.tab-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.mode === mode);
             });
@@ -280,14 +298,51 @@
             document.getElementById(group + '-online-fields').style.display = mode === 'online' ? '' : 'none';
         }
 
-        // Initialize Tag Selector
-        document.querySelectorAll('.tag-option').forEach(opt => {
+        // ASR engine ↔ model 关联映射
+        const ASR_ENGINE_MAP = {
+            'Qwen/Qwen3-ASR-0.6B': { engine: 'qwen3-asr', mode: 'local' },
+            'Qwen/Qwen3-ASR-1.7B': { engine: 'qwen3-asr', mode: 'local' },
+            'iic/SenseVoiceSmall':  { engine: 'sensevoice', mode: 'local' },
+            '__openai__':           { engine: 'openai',     mode: 'online' },
+        };
+
+        // 翻译引擎 ↔ 模式 关联映射
+        const TRANSLATE_ENGINE_MAP = {
+            'Qwen/Qwen3-0.6B': { mode: 'local', model_local: 'Qwen/Qwen3-0.6B' },
+            'Qwen/Qwen3-1.7B': { mode: 'local', model_local: 'Qwen/Qwen3-1.7B' },
+            '__online__': { mode: 'online' },
+        };
+
+        function onAsrEngineSelect(value) {
+            const mapping = ASR_ENGINE_MAP[value];
+            if (!mapping) return;
+            document.getElementById('asr_engine').value = mapping.engine;
+            document.getElementById('asr_mode').value = mapping.mode;
+            document.getElementById('asr-online-fields').style.display = mapping.mode === 'online' ? '' : 'none';
+        }
+
+        function selectAsrModel(value) {
+            document.querySelectorAll('#asr-engine-tags .tag-option').forEach(opt => {
+                opt.classList.toggle('active', opt.dataset.value === value);
+            });
+            onAsrEngineSelect(value);
+        }
+
+        // Initialize ASR Engine Tag Selector
+        document.querySelectorAll('#asr-engine-tags .tag-option').forEach(opt => {
+            opt.onclick = () => selectAsrModel(opt.dataset.value);
+        });
+
+        // Initialize Target Language Tag Selector
+        document.querySelectorAll('#target-lang-tags .tag-option').forEach(opt => {
             opt.onclick = () => {
-                document.querySelectorAll('.tag-option').forEach(o => o.classList.remove('active'));
+                document.querySelectorAll('#target-lang-tags .tag-option').forEach(o => o.classList.remove('active'));
                 opt.classList.add('active');
                 document.getElementById('target_language').value = opt.dataset.value;
             };
         });
+
+        // Initialize Translate Mode Tag Selector (if any)
 
         async function loadConfig() {
             try {
@@ -301,23 +356,32 @@
                 document.getElementById('temp_dir').value = cfg.temp_dir || './tmp';
 
                 // ASR
-                switchTab('asr', cfg.asr_mode || 'local');
-                document.getElementById('asr_model').value = cfg.asr_model || '';
+                const asrTagValue = cfg.asr_mode === 'online' || cfg.asr_engine === 'openai'
+                    ? '__openai__'
+                    : (cfg.asr_model || 'Qwen/Qwen3-ASR-0.6B');
+                selectAsrModel(asrTagValue);
                 document.getElementById('asr_api_url').value = cfg.asr_api_url || '';
                 document.getElementById('asr_api_key').value = cfg.asr_api_key || '';
                 document.getElementById('asr_model_online').value = cfg.asr_model_online || '';
 
                 // Translation
-                switchTab('translate', cfg.translate_mode || 'online');
+                const transTagValue = cfg.translate_mode === 'online'
+                    ? '__online__'
+                    : (cfg.translate_model_local || 'Qwen/Qwen3-0.6B');
+                selectTranslateEngine(transTagValue);
+                // Override model_local if user had a custom value not in the tag list
+                const KNOWN_MODELS = ['Qwen/Qwen3-0.6B', 'Qwen/Qwen3-1.7B'];
+                if (cfg.translate_model_local && !KNOWN_MODELS.includes(cfg.translate_model_local)) {
+                    document.getElementById('translate_model_local').value = cfg.translate_model_local;
+                }
                 document.getElementById('translate_api_url').value = cfg.translate_api_url || '';
                 document.getElementById('translate_api_key').value = cfg.translate_api_key || '';
                 document.getElementById('translate_model').value = cfg.translate_model || '';
-                document.getElementById('translate_model_local').value = cfg.translate_model_local || '';
                 
                 // Target Language Tag
                 const targetLang = cfg.target_language || 'zh-CN';
                 document.getElementById('target_language').value = targetLang;
-                document.querySelectorAll('.tag-option').forEach(opt => {
+                document.querySelectorAll('#target-lang-tags .tag-option').forEach(opt => {
                     opt.classList.toggle('active', opt.dataset.value === targetLang);
                 });
 
@@ -395,8 +459,9 @@
             const body = {
                 jellyfin_url: document.getElementById('jellyfin_url').value,
                 jellyfin_api_key: document.getElementById('jellyfin_api_key').value,
+                asr_engine: document.getElementById('asr_engine').value,
                 asr_mode: document.getElementById('asr_mode').value,
-                asr_model: document.getElementById('asr_model').value,
+                asr_model: (document.querySelector('#asr-engine-tags .tag-option.active') || {}).dataset.value || 'Qwen/Qwen3-ASR-0.6B',
                 asr_api_url: document.getElementById('asr_api_url').value,
                 asr_api_key: document.getElementById('asr_api_key').value,
                 asr_model_online: document.getElementById('asr_model_online').value,
@@ -519,8 +584,21 @@
             }
         }
 
-        async function genSub(path) {
-            await fetch('/api/videos/subtitle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ video_path: path }) });
+        async function genSub(path, force = false) {
+            const resp = await fetch('/api/videos/subtitle', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ video_path: path, force: force }) 
+            });
+            const data = await resp.json();
+            
+            if (data.status === 'exists') {
+                if (confirm(`检测到已有字幕 (${data.reason})，是否覆盖生成？`)) {
+                    return genSub(path, true);
+                }
+                return;
+            }
+            
             await scanVideos(); loadTasks();
         }
 
@@ -617,15 +695,31 @@
             document.getElementById('batch-gen-btn').style.display = selectedVideos.size ? '' : 'none';
         }
 
-        async function batchGenSub() {
+        async function batchGenSub(force = false) {
             if (!selectedVideos.size) return;
-            if (!confirm(`确定为选中的 ${selectedVideos.size} 个视频生成字幕吗？`)) return;
             const resp = await fetch('/api/videos/subtitle/batch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ video_paths: [...selectedVideos] })
+                body: JSON.stringify({ video_paths: [...selectedVideos], force: force })
             });
             const data = await resp.json();
+            
+            if (data.status === 'exists') {
+                const count = data.existing.length;
+                if (confirm(`选中的视频中有 ${count} 个已存在字幕，是否全部覆盖生成？\n(取消则仅为没有字幕的视频生成)`)) {
+                    return batchGenSub(true);
+                } else {
+                    // 用户选择取消覆盖，则仅为没有字幕的发送请求
+                    if (data.clean_paths && data.clean_paths.length > 0) {
+                        selectedVideos = new Set(data.clean_paths);
+                        return batchGenSub(true); // 此时 clean_paths 里肯定没字幕，直接强制过
+                    } else {
+                        alert('没有需要处理的视频。');
+                        return;
+                    }
+                }
+            }
+
             const msg = data.skipped ? `已创建 ${data.task_ids.length} 个任务，跳过 ${data.skipped} 个` : `已创建 ${data.task_ids.length} 个任务`;
             alert(msg);
             selectedVideos.clear();
