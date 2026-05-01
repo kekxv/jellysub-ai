@@ -11,9 +11,9 @@
         <div class="logo-mark" style="margin: 0 auto 1.5rem;">JS</div>
         <h1>管理后台</h1>
         <p>欢迎回到 JellySub-AI</p>
-        
+
         <div id="error-msg" class="badge failed" style="display:none; width: 100%; margin-bottom: 1.5rem; padding: 0.75rem;"></div>
-        
+
         <form id="login-form">
             <div class="form-group" style="text-align: left;">
                 <label for="username">用户名</label>
@@ -34,36 +34,47 @@
     </div>
 
     <script>
+        async function sha256(text) {
+            const buf = new TextEncoder().encode(text);
+            const hash = await crypto.subtle.digest('SHA-256', buf);
+            return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('login-btn');
             const err = document.getElementById('error-msg');
-            btn.disabled = true; 
+            btn.disabled = true;
             btn.textContent = '验证中...';
             err.style.display = 'none';
-            
+
             try {
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                const inner = await sha256(password);
+                const hash = await sha256(username + inner);
+
                 const resp = await fetch('/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        username: document.getElementById('username').value,
-                        password: document.getElementById('password').value,
+                        username,
+                        password: hash,
                         totp_code: document.getElementById('totp_code').value,
                     }),
                 });
                 const data = await resp.json();
-                if (resp.ok && data.status === 'ok') { 
-                    window.location.href = '/admin'; 
-                } else { 
-                    err.textContent = data.detail || '用户名或密码错误'; 
-                    err.style.display = 'block'; 
+                if (resp.ok && data.status === 'ok') {
+                    window.location.href = '/admin';
+                } else {
+                    err.textContent = data.detail || '用户名、密码或验证码错误';
+                    err.style.display = 'block';
                 }
-            } catch { 
-                err.textContent = '网络连接超时'; 
-                err.style.display = 'block'; 
+            } catch {
+                err.textContent = '网络连接超时';
+                err.style.display = 'block';
             } finally {
-                btn.disabled = false; 
+                btn.disabled = false;
                 btn.textContent = '立即登录';
             }
         });

@@ -47,7 +47,7 @@
                 <h2 class="section-title" style="margin-bottom: 0;">🎥 本地视频</h2>
                 <div class="section-header-actions">
                     <button class="section-refresh" onclick="scanVideos()" title="刷新列表">&#8635;</button>
-                    <button class="btn btn-primary" id="batch-gen-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="batchGenSub()">批量生成字幕</button>
+                    <button class="btn btn-primary" id="batch-gen-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="promptBatchGen()">批量生成字幕</button>
                 </div>
             </div>
 
@@ -283,6 +283,31 @@
             </div>
             <div class="modal-body">
                 <div class="sub-preview" id="sub-preview-content">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Language Selector Modal -->
+    <div class="modal-overlay" id="lang-modal" style="display: none;">
+        <div class="modal-panel" style="max-width: 420px;">
+            <div class="modal-header">
+                <h2 style="font-size: 1rem;">选择语音语言</h2>
+                <button class="btn" onclick="closeLangModal()" style="padding: 0.2rem 0.5rem;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tag-selector" id="lang-tags">
+                    <div class="tag-option active" data-value="auto">自动检测</div>
+                    <div class="tag-option" data-value="zh">中文</div>
+                    <div class="tag-option" data-value="en">English</div>
+                    <div class="tag-option" data-value="ja">日本語</div>
+                    <div class="tag-option" data-value="ko">한국어</div>
+                    <div class="tag-option" data-value="yue">粤语</div>
+                </div>
+                <input type="hidden" id="asr_language" value="auto">
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeLangModal()">取消</button>
+                <button class="btn btn-primary" id="lang-confirm-btn">确认</button>
             </div>
         </div>
     </div>
@@ -578,10 +603,6 @@
                 allVideos = data.videos || [];
                 currentVideoDirs = data.dirs || [];
                 videoPage = 0;
-                document.getElementById('video-search-input').value = '';
-
-                currentDirPath = '';
-                currentBreadcrumbList = [];
                 renderVideoPage();
             } catch (e) {}
         }
@@ -769,7 +790,7 @@
                     <td class="col-actions">
                         <div class="file-col-actions">
                             <button class="btn" onclick="openPlayer('${safePath}','${safeName}')">播放</button>
-                            <button class="btn btn-primary" onclick="genSub('${safePath}')">${v.has_subtitle ? '重新生成' : '生成字幕'}</button>
+                            <button class="btn btn-primary" onclick="promptGen('${safePath}')">${v.has_subtitle ? '重新生成' : '生成字幕'}</button>
                             ${v.has_subtitle ? `<button class="btn" onclick="openSubPreview('${safePath}')">字幕</button>` : ''}
                         </div>
                     </td>
@@ -789,23 +810,68 @@
             }
         }
 
-        async function genSub(path, force = false) {
-            const resp = await fetch('/api/videos/subtitle', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ video_path: path, force: force }) 
+        async function genSub(path, force = false, asrLanguage = 'auto') {
+            const resp = await fetch('/api/videos/subtitle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_path: path, force: force, asr_language: asrLanguage })
             });
             const data = await resp.json();
-            
+
             if (data.status === 'exists') {
                 if (confirm(`检测到已有字幕 (${data.reason})，是否覆盖生成？`)) {
-                    return genSub(path, true);
+                    return genSub(path, true, asrLanguage);
                 }
                 return;
             }
-            
+
             await scanVideos(); loadTasks();
         }
+
+        let pendingGenPath = '';
+        let pendingGenForce = false;
+        let pendingBatch = false;
+
+        function promptGen(path, force = false) {
+            pendingGenPath = path;
+            pendingGenForce = force;
+            pendingBatch = false;
+            document.getElementById('asr_language').value = 'auto';
+            document.querySelectorAll('#lang-tags .tag-option').forEach(t => {
+                t.classList.toggle('active', t.dataset.value === 'auto');
+            });
+            document.getElementById('lang-modal').style.display = 'flex';
+        }
+
+        function promptBatchGen() {
+            pendingBatch = true;
+            document.getElementById('asr_language').value = 'auto';
+            document.querySelectorAll('#lang-tags .tag-option').forEach(t => {
+                t.classList.toggle('active', t.dataset.value === 'auto');
+            });
+            document.getElementById('lang-modal').style.display = 'flex';
+        }
+
+        function closeLangModal() {
+            document.getElementById('lang-modal').style.display = 'none';
+        }
+
+        document.getElementById('lang-confirm-btn').onclick = async () => {
+            const lang = document.getElementById('asr_language').value;
+            closeLangModal();
+            if (pendingBatch) {
+                return batchGenSub(false, lang);
+            }
+            return genSub(pendingGenPath, pendingGenForce, lang);
+        };
+
+        document.querySelectorAll('#lang-tags .tag-option').forEach(opt => {
+            opt.onclick = () => {
+                document.querySelectorAll('#lang-tags .tag-option').forEach(t => t.classList.remove('active'));
+                opt.classList.add('active');
+                document.getElementById('asr_language').value = opt.dataset.value;
+            };
+        });
 
         let taskOffset = 0, taskFilterStatus = '';
         function setFilter(btn) {
@@ -900,24 +966,23 @@
             document.getElementById('batch-gen-btn').style.display = selectedVideos.size ? '' : 'none';
         }
 
-        async function batchGenSub(force = false) {
+        async function batchGenSub(force = false, asrLanguage = 'auto') {
             if (!selectedVideos.size) return;
             const resp = await fetch('/api/videos/subtitle/batch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ video_paths: [...selectedVideos], force: force })
+                body: JSON.stringify({ video_paths: [...selectedVideos], force: force, asr_language: asrLanguage })
             });
             const data = await resp.json();
-            
+
             if (data.status === 'exists') {
                 const count = data.existing.length;
                 if (confirm(`选中的视频中有 ${count} 个已存在字幕，是否全部覆盖生成？\n(取消则仅为没有字幕的视频生成)`)) {
-                    return batchGenSub(true);
+                    return batchGenSub(true, asrLanguage);
                 } else {
-                    // 用户选择取消覆盖，则仅为没有字幕的发送请求
                     if (data.clean_paths && data.clean_paths.length > 0) {
                         selectedVideos = new Set(data.clean_paths);
-                        return batchGenSub(true); // 此时 clean_paths 里肯定没字幕，直接强制过
+                        return batchGenSub(true, asrLanguage);
                     } else {
                         alert('没有需要处理的视频。');
                         return;

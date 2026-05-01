@@ -127,6 +127,7 @@ class TaskManager:
                 ("source_segments", "TEXT"),
                 ("translated_segments", "TEXT"),
                 ("started_at", "TIMESTAMP"),
+                ("asr_language", "TEXT DEFAULT 'auto'"),
             ]
             for col_name, col_def in columns_to_add:
                 try:
@@ -161,15 +162,16 @@ class TaskManager:
         item_type: str = "",
         item_name: str = "",
         pipeline_type: str = "webhook",
+        asr_language: str = "auto",
     ) -> int:
         with self._lock:
             conn = self._get_conn()
             cur = conn.cursor()
             cur.execute(
                 """INSERT INTO tasks
-                   (video_path, item_id, item_type, item_name, pipeline_type, status, stage)
-                   VALUES (?, ?, ?, ?, ?, 'pending', 'pending')""",
-                (video_path, item_id, item_type, item_name, pipeline_type),
+                   (video_path, item_id, item_type, item_name, pipeline_type, asr_language, status, stage)
+                   VALUES (?, ?, ?, ?, ?, ?, 'pending', 'pending')""",
+                (video_path, item_id, item_type, item_name, pipeline_type, asr_language),
             )
             task_id = cur.lastrowid
             conn.commit()
@@ -307,6 +309,7 @@ class TaskManager:
         self,
         video_paths: list[str],
         pipeline_type: str = "video_subtitle",
+        asr_language: str = "auto",
     ) -> tuple[list[int], int]:
         """批量创建字幕任务，跳过已有 pending/processing 状态的视频。
         返回 (创建的任务 ID 列表, 跳过的数量)。
@@ -318,7 +321,7 @@ class TaskManager:
             if existing and existing["status"] in ("pending", "processing"):
                 skipped += 1
                 continue
-            task_id = self.create_task(video_path=path, pipeline_type=pipeline_type)
+            task_id = self.create_task(video_path=path, pipeline_type=pipeline_type, asr_language=asr_language)
             created.append(task_id)
         return created, skipped
 
@@ -456,7 +459,7 @@ class TaskManager:
                         mode=cfg.asr_mode,
                         engine=cfg.asr_engine,
                         model_name=cfg.asr_model,
-                        asr_language=cfg.asr_language,
+                        asr_language=task["asr_language"] if task.get("asr_language") else cfg.asr_language,
                         api_url=cfg.asr_api_url,
                         api_key=cfg.asr_api_key,
                         model_online=cfg.asr_model_online,

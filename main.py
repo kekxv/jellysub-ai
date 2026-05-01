@@ -80,10 +80,19 @@ def require_auth(request: Request) -> bool:
     return request.session.get("authenticated", False)
 
 
-def check_credentials(username: str, password: str, totp_code: str) -> bool:
-    if username != ADMIN_USERNAME or password != ADMIN_PASSWORD:
+def _credential_hash(username: str, password: str) -> str:
+    return hashlib.sha256((username + hashlib.sha256(password.encode()).hexdigest()).encode()).hexdigest()
+
+
+def check_credentials(username: str, password_hash: str, totp_code: str) -> bool:
+    if username != ADMIN_USERNAME:
         return False
-    if TOTP_SECRET and totp_code:
+    expected_hash = _credential_hash(ADMIN_USERNAME, ADMIN_PASSWORD)
+    if not hmac.compare_digest(password_hash, expected_hash):
+        return False
+    if TOTP_SECRET:
+        if not totp_code:
+            return False
         return pyotp.TOTP(TOTP_SECRET).verify(totp_code)
     return True
 
@@ -503,11 +512,13 @@ async def api_stream_video(request: Request, path: str):
 class SubtitleJobRequest(BaseModel):
     video_path: str
     force: bool = False
+    asr_language: str = "auto"
 
 
 class BatchSubtitleRequest(BaseModel):
     video_paths: list[str] = []
     force: bool = False
+    asr_language: str = "auto"
 
 
 @app.post("/api/videos/subtitle")
@@ -516,7 +527,7 @@ async def api_generate_subtitle(body: SubtitleJobRequest, request: Request):
     _require_auth(request)
     video_path = body.video_path
     _validate_video_path(video_path)
-    
+
     # Check if already running
     task = task_manager.get_latest_by_video_path(video_path)
     if task and task["status"] in ("pending", "processing"):
@@ -534,6 +545,7 @@ async def api_generate_subtitle(body: SubtitleJobRequest, request: Request):
     task_id = task_manager.create_task(
         video_path=video_path,
         pipeline_type="video_subtitle",
+        asr_language=body.asr_language,
     )
     return {"status": "started", "task_id": task_id}
 
@@ -570,25 +582,79 @@ async def api_batch_generate_subtitle(body: BatchSubtitleRequest, request: Reque
                 "clean_paths": final_paths,
             }
 
-    task_ids, skipped = task_manager.create_tasks_batch(body.video_paths)
+    task_ids, skipped = task_manager.create_tasks_batch(body.video_paths, asr_language=body.asr_language)
     return {"status": "started", "task_ids": task_ids, "skipped": skipped}
+
+
+def _parse_srt(filepath: str) -> list[dict]:
+    """将 SRT 文件解析为 segments 列表，每个元素含 start/end/time 和 text。"""
+    segments = []
+    try:
+        text = Path(filepath).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    blocks = text.strip().split("\n\n")
+    for block in blocks:
+        lines = block.strip().split("\n")
+        if len(lines) < 3:
+            continue
+        # Try to find timecode line
+        for i, line in enumerate(lines):
+            if "-->" in line:
+                try:
+                    start_str, end_str = line.split("-->")
+                    segments.append({
+                        "start": _srt_to_seconds(start_str.strip()),
+                        "end": _srt_to_seconds(end_str.strip()),
+                        "text": "\n".join(lines[i + 1:]).strip(),
+                    })
+                except (ValueError, IndexError):
+                    pass
+                break
+    return segments
+
+
+def _srt_to_seconds(srt_time: str) -> float:
+    """将 SRT 时间格式 '00:00:01,000' 或 '00:00:01.000' 转为秒数。"""
+    srt_time = srt_time.replace(".", ",")
+    h, m, rest = srt_time.split(":")
+    s, ms = rest.split(",")
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
 
 
 @app.get("/api/videos/subtitle/status")
 async def api_subtitle_status(request: Request, path: str):
-    """兼容端点：返回指定视频的最新任务状态。"""
+    """返回指定视频的字幕状态。优先 DB，其次读取磁盘 .srt 文件。"""
     _require_auth(request)
     _validate_video_path(path)
     task = task_manager.get_latest_by_video_path(path)
-    if not task:
-        return {"status": "not_found"}
-    return {
-        "running": task["status"] in ("pending", "processing"),
-        "progress": task.get("stage", "idle"),
-        "percent": task.get("progress", 0),
-        "segments": json.loads(task["source_segments"]) if task.get("source_segments") else [],
-        "translated": json.loads(task["translated_segments"]) if task.get("translated_segments") else [],
-    }
+
+    if task and task.get("source_segments"):
+        return {
+            "running": task["status"] in ("pending", "processing"),
+            "progress": task.get("stage", "idle"),
+            "percent": task.get("progress", 0),
+            "segments": json.loads(task["source_segments"]),
+            "translated": json.loads(task["translated_segments"]) if task.get("translated_segments") else [],
+        }
+
+    # Fallback: 从磁盘读取 .srt 文件
+    from pathlib import Path as _Path
+    from core.subtitle_checker import find_existing_subtitle
+    vpath = _Path(path)
+    existing = find_existing_subtitle(str(vpath.parent), vpath.stem)
+    if existing:
+        segments = _parse_srt(existing)
+        if segments:
+            return {
+                "running": False,
+                "progress": "done",
+                "percent": 100,
+                "segments": segments,
+                "translated": [],
+            }
+
+    return {"status": "not_found"}
 
 
 # --- Webhook 路由 ---
