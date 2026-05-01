@@ -6,6 +6,7 @@ __pycache__/
 # 过滤大型模型和数据 (建议通过 -v 挂载)
 model_cache/
 assets/*.srt
+images/
 tmp/
 tasks.db
 
