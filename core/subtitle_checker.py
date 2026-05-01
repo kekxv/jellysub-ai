@@ -1,37 +1,51 @@
 """检查已有字幕文件及其 UTF-8 编码合法性。"""
 
 import logging
+import re
 from pathlib import Path
 
 logger = logging.getLogger("uvicorn.error")
 
 _SUBTITLE_EXTENSIONS = (".srt", ".vtt", ".ass")
 
-_CHINESE_HINTS = ("zh", "chi", "chs", "cht", "cn", "zh-CN", "zh-TW", "Chinese")
+# 字幕文件名中的语言/标签后缀，去掉后与视频名匹配
+_LANG_TAGS_RE = re.compile(r'\.(?:zh|chi|chs|cht|cn|en|eng|ja|jpn|ko|kor|default|bilingual|foreign)(?:\.[^.]*)*$', re.IGNORECASE)
 
-# Tags that indicate a Chinese subtitle file when appearing as the last dot-separated segment
-_CHINESE_FILE_TAGS = ("zh-cn", "zh-tw", "chi", "chs", "cht", "cn", "zho", "chinese")
+
+def _strip_lang_tags(stem: str) -> str:
+    """去掉文件名末尾的语言/字幕标签后缀，返回核心名称。
+
+    例: "Show.S01E01.default.zh-CN" -> "Show.S01E01"
+    例: "Movie.2024.bilingual.zh-TW" -> "Movie.2024"
+    """
+    return _LANG_TAGS_RE.sub('', stem)
 
 
 def _is_chinese_subtitle(path: Path) -> bool:
     """根据文件名判断是否为中文字幕。"""
     stem = path.stem.lower()
     last_tag = stem.rsplit(".", 1)[-1] if "." in stem else ""
-    return last_tag in _CHINESE_FILE_TAGS or any(h.lower() in stem for h in _CHINESE_HINTS)
+    return last_tag in ("zh-cn", "zh-tw", "chi", "chs", "cht", "cn", "zho", "chinese")
 
 
 def find_existing_subtitle(media_dir: str, media_name: str, language_hint: str = "zh") -> str | None:
-    """扫描同级目录，返回已有的中文字幕路径 (UTF-8 合法的)，未找到则返回 None。"""
+    """扫描同级目录，返回与视频名匹配的中文字幕路径 (UTF-8 合法的)，未找到则返回 None。"""
     media_dir_path = Path(media_dir)
     if not media_dir_path.is_dir():
         return None
 
+    # 视频的核心名称（去后缀）
+    video_core = _strip_lang_tags(media_name)
+
     for sub_path in sorted(media_dir_path.iterdir()):
         if sub_path.suffix.lower() not in _SUBTITLE_EXTENSIONS:
             continue
-        stem = sub_path.stem.lower()
-        if media_name.lower() not in stem and not _is_chinese_subtitle(sub_path):
+
+        # 字幕去标签后的核心名必须与视频核心名完全一致
+        sub_core = _strip_lang_tags(sub_path.stem)
+        if sub_core != video_core:
             continue
+
         if is_valid_subtitle(str(sub_path)):
             logger.info("Found valid existing subtitle: %s", sub_path)
             return str(sub_path)
@@ -51,14 +65,12 @@ def is_valid_subtitle(filepath: str) -> bool:
     if not raw:
         return False
 
-    # 尝试 UTF-8 解码
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         logger.warning("Subtitle %s is not valid UTF-8", filepath)
         return False
 
-    # 检查可打印字符比例 (至少 30% 可打印)
     printable_count = sum(1 for c in text if c.isprintable() or c in "\n\r\t")
     ratio = printable_count / max(len(text), 1)
     if ratio < 0.3:
@@ -70,19 +82,17 @@ def is_valid_subtitle(filepath: str) -> bool:
 
 async def has_any_subtitle(video_path: str, target_lang: str = "zh") -> tuple[bool, str]:
     """检查是否已有任何字幕（内置或外置）。
-    
+
     Returns: (bool, reason)
     """
     vpath = Path(video_path)
     media_dir = str(vpath.parent)
     media_name = vpath.stem
 
-    # 1. 检查外置
     existing = find_existing_subtitle(media_dir, media_name, target_lang)
     if existing and is_valid_subtitle(existing):
         return True, f"external: {Path(existing).name}"
 
-    # 2. 检查内置
     from core.audio import has_internal_subtitle
     if await has_internal_subtitle(video_path):
         return True, "internal subtitle stream"

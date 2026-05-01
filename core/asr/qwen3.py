@@ -123,9 +123,20 @@ class Qwen3AsrEngine(AsrEngine):
         start = time.time()
         self.log_progress(audio_path, done, start)
 
+        # 短代码 → Qwen3-ASR 全名映射
+        _LANG_MAP = {
+            "zh": "Chinese", "en": "English", "yue": "Cantonese",
+            "ja": "Japanese", "ko": "Korean", "ar": "Arabic",
+            "de": "German", "fr": "French", "es": "Spanish",
+            "pt": "Portuguese", "id": "Indonesian", "it": "Italian",
+            "ru": "Russian", "th": "Thai", "vi": "Vietnamese",
+            "tr": "Turkish", "hi": "Hindi", "ms": "Malay",
+        }
+        qwen_lang = _LANG_MAP.get(language, language) if language != "auto" else None
+
         results = model.transcribe(
             audio=audio_path,
-            language=None if language == "auto" else language,
+            language=qwen_lang,
             return_time_stamps=True,
         )
 

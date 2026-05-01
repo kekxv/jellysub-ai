@@ -79,11 +79,6 @@
                 <div class="empty-icon">🎬</div>
                 <p>未发现视频文件，请检查设置中的目录映射。</p>
             </div>
-            <div class="pagination" id="video-pagination" style="display: none; justify-content: space-between; margin-top: 1.5rem;">
-                <button class="btn" onclick="changeVideoPage(-1)" id="video-prev-btn">←</button>
-                <span id="video-page-info" style="font-size: 0.75rem;"></span>
-                <button class="btn" onclick="changeVideoPage(1)" id="video-next-btn">→</button>
-            </div>
         </section>
     </main>
 
@@ -548,8 +543,6 @@
 
         // --- Video & Task Logic ---
         let allVideos = [];
-        let videoPage = 0;
-        const VIDEO_PAGE_SIZE = 12;
         let currentDirPath = '';
         let currentBreadcrumbList = [];
 
@@ -602,7 +595,6 @@
                 const data = await resp.json();
                 allVideos = data.videos || [];
                 currentVideoDirs = data.dirs || [];
-                videoPage = 0;
                 renderVideoPage();
             } catch (e) {}
         }
@@ -709,7 +701,6 @@
         function navigateTo(relativePath) {
             currentDirPath = relativePath;
             currentBreadcrumbList = relativePath ? relativePath.split('/') : [];
-            videoPage = 0;
             document.getElementById('file-list-select-all').checked = false;
             selectedVideos.clear();
             renderVideoPage();
@@ -720,15 +711,6 @@
         }
 
         function onVideoSearch() {
-            videoPage = 0;
-            renderVideoPage();
-        }
-
-        function changeVideoPage(delta) {
-            const filtered = getFilteredVideos();
-            const tree = buildDirTree(filtered, currentDirPath, currentVideoDirs);
-            const maxPage = Math.max(0, Math.ceil(tree.files.length / VIDEO_PAGE_SIZE) - 1);
-            videoPage = Math.max(0, Math.min(maxPage, videoPage + delta));
             renderVideoPage();
         }
 
@@ -750,7 +732,6 @@
             if (!totalItems) {
                 listContainer.style.display = 'none';
                 empty.style.display = 'block';
-                pagin.style.display = 'none';
                 return;
             }
             empty.style.display = 'none';
@@ -758,7 +739,7 @@
 
             let html = '';
 
-            // Directory rows (not paginated, always shown)
+            // Directory rows (always shown first)
             for (const dir of tree.subdirs) {
                 const dirPath = currentDirPath ? currentDirPath + '/' + dir : dir;
                 const escapedPath = dirPath.replace(/'/g, "\\'");
@@ -772,13 +753,8 @@
                 </tr>`;
             }
 
-            // File rows (paginated)
-            const totalPages = Math.max(1, Math.ceil(tree.files.length / VIDEO_PAGE_SIZE));
-            videoPage = Math.min(videoPage, totalPages - 1);
-            const start = videoPage * VIDEO_PAGE_SIZE;
-            const pageFiles = tree.files.slice(start, start + VIDEO_PAGE_SIZE);
-
-            for (const v of pageFiles) {
+            // File rows (all shown, no pagination)
+            for (const v of tree.files) {
                 const sCls = v.processing ? 'pending' : (v.has_subtitle ? 'done' : 'pending');
                 const sTxt = v.processing ? '处理中' : (v.has_subtitle ? '已有字幕' : '待处理');
                 const safePath = v.path.replace(/'/g, "\\'").replace(/"/g, "&quot;");
@@ -800,16 +776,6 @@
             }
 
             listBody.innerHTML = html;
-
-            // Pagination
-            if (totalPages > 1) {
-                pagin.style.display = 'flex';
-                document.getElementById('video-page-info').textContent = `第 ${videoPage + 1} / ${totalPages} 页 (共 ${tree.files.length} 个文件)`;
-                document.getElementById('video-prev-btn').disabled = videoPage === 0;
-                document.getElementById('video-next-btn').disabled = videoPage >= totalPages - 1;
-            } else {
-                pagin.style.display = 'none';
-            }
         }
 
         async function genSub(path, force = false, asrLanguage = 'auto') {
