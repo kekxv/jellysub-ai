@@ -74,18 +74,32 @@ class SenseVoiceAsrEngine(AsrEngine):
                 self.model_name = "FunAudioLLM/SenseVoiceSmall"
 
         cache_dir = "./model_cache"
+        from pathlib import Path
+
+        def _cached_path(name: str) -> str | None:
+            p = Path(cache_dir) / "models--" / name.replace("/", "--") / "snapshots"
+            if p.is_dir():
+                subs = [d for d in p.iterdir() if d.is_dir()]
+                if subs:
+                    return str(sorted(subs)[-1])
+            p2 = Path(cache_dir) / "hub" / "models" / name.replace("/", "--")
+            if p2.is_dir():
+                return str(p2)
+            return None
+
         if MODEL_SOURCE == "modelscope":
             try:
                 from modelscope.hub.snapshot_download import snapshot_download
-                self.model_name = snapshot_download(self.model_name, cache_dir=cache_dir)
+                cached = _cached_path(self.model_name)
+                self.model_name = cached or snapshot_download(self.model_name, cache_dir=cache_dir)
             except ModuleNotFoundError:
                 logger.error("MODEL_SOURCE=modelscope 但 modelscope 未安装")
                 raise
         else:
-            # HuggingFace 模式也下载到 model_cache
             try:
                 from huggingface_hub import snapshot_download
-                self.model_name = snapshot_download(self.model_name, cache_dir=cache_dir)
+                cached = _cached_path(self.model_name)
+                self.model_name = cached or snapshot_download(self.model_name, cache_dir=cache_dir)
             except ModuleNotFoundError:
                 logger.warning("huggingface_hub 未安装，使用默认缓存路径")
 

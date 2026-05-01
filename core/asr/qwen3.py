@@ -28,30 +28,54 @@ class Qwen3AsrEngine(AsrEngine):
             return self._model
 
         from env_config import MODEL_SOURCE
+        from pathlib import Path
 
         cache_dir = "./model_cache"
         forced_aligner_name = "Qwen/Qwen3-ForcedAligner-0.6B"
 
+        def _cached_path(name: str) -> str | None:
+            """检查 model_cache 下是否已有缓存，有则返回本地路径，跳过远程检查。"""
+            # HF 缓存结构: model_cache/models--{org}--{model}/snapshots/{commit}/
+            p = Path(cache_dir) / "models--" / name.replace("/", "--") / "snapshots"
+            if p.is_dir():
+                subs = [d for d in p.iterdir() if d.is_dir()]
+                if subs:
+                    return str(sorted(subs)[-1])
+            # ModelScope 缓存结构: model_cache/hub/models/{org}--{model}/
+            p2 = Path(cache_dir) / "hub" / "models" / name.replace("/", "--")
+            if p2.is_dir():
+                return str(p2)
+            return None
+
         if MODEL_SOURCE == "modelscope":
             try:
                 from modelscope.hub.snapshot_download import snapshot_download
-                local_dir = snapshot_download(self.model_name, cache_dir=cache_dir)
+                cached = _cached_path(self.model_name)
+                local_dir = cached or snapshot_download(self.model_name, cache_dir=cache_dir)
                 self.model_name = local_dir
-                forced_aligner_name = snapshot_download(
+                cached_fa = _cached_path(forced_aligner_name)
+                forced_aligner_name = cached_fa or snapshot_download(
                     forced_aligner_name, cache_dir=cache_dir
                 )
             except ModuleNotFoundError:
                 logger.error("MODEL_SOURCE=modelscope 但 modelscope 未安装")
                 raise
         else:
-            # HuggingFace 模式也下载到 model_cache
             try:
                 from huggingface_hub import snapshot_download
-                local_dir = snapshot_download(self.model_name, cache_dir=cache_dir)
+                cached = _cached_path(self.model_name)
+                if cached:
+                    local_dir = cached
+                else:
+                    local_dir = snapshot_download(self.model_name, cache_dir=cache_dir)
                 self.model_name = local_dir
-                forced_aligner_name = snapshot_download(
-                    forced_aligner_name, cache_dir=cache_dir
-                )
+                cached_fa = _cached_path(forced_aligner_name)
+                if cached_fa:
+                    forced_aligner_name = cached_fa
+                else:
+                    forced_aligner_name = snapshot_download(
+                        forced_aligner_name, cache_dir=cache_dir
+                    )
             except ModuleNotFoundError:
                 logger.warning("huggingface_hub 未安装，使用默认缓存路径")
 

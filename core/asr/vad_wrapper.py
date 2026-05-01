@@ -37,9 +37,9 @@ def transcribe_with_vad(
     # 计算总语音时长
     total_speech = sum(s.end - s.start for s in speech_segments)
 
-    if len(speech_segments) == 1 or total_speech < 60:
+    if len(speech_segments) == 1 or total_speech < 30:
         # 短音频或单一段，直接处理
-        logger.info("VAD: total speech %.1fs < 60s, processing as single chunk (no split)", total_speech)
+        logger.info("VAD: total speech %.1fs < 30s, processing as single chunk (no split)", total_speech)
         segments, detected_lang = engine.transcribe(audio_path, language=language)
         # SenseVoice 不返回时间戳（start == end == 0.0），用 VAD 片段时间来分配
         return _fix_timestamps(segments, speech_segments, audio_path), detected_lang

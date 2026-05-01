@@ -35,21 +35,35 @@ def load_local_model(model_name: str, device: str | None = None):
         return _local_model
 
     from env_config import MODEL_SOURCE
+    from pathlib import Path
 
     cache_dir = "./model_cache"
+
+    def _cached_path(name: str) -> str | None:
+        p = Path(cache_dir) / "models--" / name.replace("/", "--") / "snapshots"
+        if p.is_dir():
+            subs = [d for d in p.iterdir() if d.is_dir()]
+            if subs:
+                return str(sorted(subs)[-1])
+        p2 = Path(cache_dir) / "hub" / "models" / name.replace("/", "--")
+        if p2.is_dir():
+            return str(p2)
+        return None
+
     if MODEL_SOURCE == "modelscope":
         try:
             from modelscope.hub.snapshot_download import snapshot_download
-            local_dir = snapshot_download(model_name, cache_dir=cache_dir)
+            cached = _cached_path(model_name)
+            local_dir = cached or snapshot_download(model_name, cache_dir=cache_dir)
             model_name = local_dir
         except ModuleNotFoundError:
             logger.error("MODEL_SOURCE=modelscope 但 modelscope 未安装")
             raise
     else:
-        # HuggingFace 模式也下载到 model_cache
         try:
             from huggingface_hub import snapshot_download
-            local_dir = snapshot_download(model_name, cache_dir=cache_dir)
+            cached = _cached_path(model_name)
+            local_dir = cached or snapshot_download(model_name, cache_dir=cache_dir)
             model_name = local_dir
         except ModuleNotFoundError:
             logger.warning("huggingface_hub 未安装，使用默认缓存路径")

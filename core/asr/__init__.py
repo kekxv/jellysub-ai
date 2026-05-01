@@ -4,6 +4,8 @@ import logging
 import threading
 import time
 
+logger = logging.getLogger("uvicorn.error")
+
 from core.asr.base import (
     AsrEngine,
     join_words,

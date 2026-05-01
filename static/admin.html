@@ -617,8 +617,9 @@
 
         function getRelativePath(fullPath, rootDirs) {
             for (const root of rootDirs) {
-                if (fullPath.startsWith(root + '/') || fullPath === root) {
-                    let rel = fullPath.substring(root.length);
+                const cleanRoot = root.replace(/\/+$/, '');
+                if (fullPath.startsWith(cleanRoot + '/')) {
+                    let rel = fullPath.substring(cleanRoot.length);
                     if (rel.startsWith('/')) rel = rel.substring(1);
                     return rel || '.';
                 }
@@ -635,7 +636,7 @@
             let effectiveParts = currentParts;
             if (currentParts.length > 0) {
                 for (const root of rootDirs) {
-                    const rootName = root.split('/').pop();
+                    const rootName = root.replace(/\/+$/, '').split('/').pop();
                     if (currentParts[0] === rootName) {
                         effectiveParts = currentParts.slice(1);
                         break;
@@ -652,8 +653,9 @@
                     // Root level: show monitored directory names as top-level entries
                     let rootName = null;
                     for (const root of rootDirs) {
-                        if (v.path.startsWith(root + '/')) {
-                            rootName = root.split('/').pop();
+                        const cleanRoot = root.replace(/\/+$/, '');
+                        if (v.path.startsWith(cleanRoot + '/')) {
+                            rootName = cleanRoot.split('/').pop();
                             break;
                         }
                     }
