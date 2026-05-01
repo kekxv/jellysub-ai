@@ -50,3 +50,4 @@ assets/*.srt
 model_cache/
 tmp/
 /assets/Young*.mp4
+/assets/young

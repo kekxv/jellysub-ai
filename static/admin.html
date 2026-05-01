@@ -13,10 +13,11 @@
             <span class="logo-text">JellySub-AI</span>
         </div>
         <div class="topbar-actions">
-            <a href="/" class="topbar-btn"><span>首页</span></a>
-            <button type="button" class="topbar-btn" onclick="startTest()" id="topbar-test-btn"><span>测试字幕</span></button>
-            <button type="button" class="topbar-btn topbar-btn-accent" onclick="openSettings()"><span>设置</span></button>
-            <button type="button" class="topbar-btn" onclick="logout()"><span>退出</span></button>
+            <a href="/" class="topbar-btn" data-icon="🏠"><span>首页</span></a>
+            <button type="button" class="topbar-btn" data-icon="📋" onclick="openTaskDrawer()"><span>任务</span></button>
+            <button type="button" class="topbar-btn" data-icon="🧪" onclick="startTest()" id="topbar-test-btn"><span>测试字幕</span></button>
+            <button type="button" class="topbar-btn topbar-btn-accent" data-icon="⚙️" onclick="openSettings()"><span>设置</span></button>
+            <button type="button" class="topbar-btn" data-icon="🚪" onclick="logout()"><span>退出</span></button>
         </div>
     </header>
 
@@ -40,91 +41,110 @@
             </div>
         </div>
 
-        <div class="dashboard-grid">
-            <!-- Left: Videos -->
-            <section class="dash-section">
-                <div class="section-header">
-                    <h2 class="section-title" style="margin-bottom: 0;">🎥 本地视频</h2>
-                    <div class="section-header-actions">
-                        <label class="select-all-label">
-                            <input type="checkbox" id="video-select-all" onchange="toggleAllVideos(this.checked)"> 全选
-                        </label>
-                        <button class="section-refresh" onclick="scanVideos()" title="刷新列表">&#8635;</button>
-                        <button class="btn btn-primary" id="batch-gen-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="batchGenSub()">批量生成字幕</button>
-                    </div>
+        <!-- Videos Section (full width) -->
+        <section class="dash-section">
+            <div class="section-header">
+                <h2 class="section-title" style="margin-bottom: 0;">🎥 本地视频</h2>
+                <div class="section-header-actions">
+                    <button class="section-refresh" onclick="scanVideos()" title="刷新列表">&#8635;</button>
+                    <button class="btn btn-primary" id="batch-gen-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="batchGenSub()">批量生成字幕</button>
                 </div>
+            </div>
 
-                <!-- Search -->
-                <div class="video-search-bar">
-                    <input type="text" id="video-search-input" placeholder="搜索文件名或路径..." oninput="onVideoSearch()">
-                </div>
+            <!-- Search -->
+            <div class="video-search-bar">
+                <input type="text" id="video-search-input" placeholder="搜索文件名或路径..." oninput="onVideoSearch()">
+            </div>
 
-                <div class="video-grid" id="video-grid"></div>
-                <div class="empty-state" id="video-empty" style="display: none;">
-                    <div class="empty-icon">🎬</div>
-                    <p>未发现视频文件，请检查设置中的目录映射。</p>
-                </div>
-                <div class="pagination" id="video-pagination" style="display: none; justify-content: space-between; margin-top: 1.5rem;">
-                    <button class="btn" onclick="changeVideoPage(-1)" id="video-prev-btn">←</button>
-                    <span id="video-page-info" style="font-size: 0.75rem;"></span>
-                    <button class="btn" onclick="changeVideoPage(1)" id="video-next-btn">→</button>
-                </div>
-            </section>
+            <!-- Breadcrumb -->
+            <div class="breadcrumb" id="video-breadcrumb" style="display: none;"></div>
 
-            <!-- Right: Tasks -->
-            <aside class="dash-section">
-                <div id="running-section" style="display: none; margin-bottom: 1.5rem;">
-                    <div class="running-counter">
-                        <div class="running-icon">⏳</div>
-                        <div class="running-info">
-                            <span class="running-label">正在处理</span>
-                            <span class="running-count" id="running-count">0 个任务</span>
-                        </div>
-                        <div class="running-bar"><div class="running-bar-inner"></div></div>
-                    </div>
-                </div>
-
-                <div class="section-header">
-                    <h2 class="section-title" style="margin-bottom: 0;">📜 任务历史</h2>
-                    <div class="section-header-actions">
-                        <label class="select-all-label">
-                            <input type="checkbox" id="task-select-all" onchange="toggleAllTasks(this.checked)"> 全选
-                        </label>
-                        <button class="section-refresh" onclick="loadTasks()">&#8635;</button>
-                        <button class="btn btn-danger" id="batch-del-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="batchDeleteTasks()">批量删除</button>
-                    </div>
-                </div>
-
-                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-                    <select id="filter-type" onchange="loadTasks()" class="btn" style="flex: 1; padding: 0.35rem;">
-                        <option value="">全部类型</option>
-                        <option value="test">测试</option>
-                        <option value="video_subtitle">字幕</option>
-                        <option value="webhook">Webhook</option>
-                    </select>
-                </div>
-                
-                <div style="display: flex; gap: 0.25rem; margin-bottom: 1rem; overflow-x: auto; padding-bottom: 0.5rem;">
-                    <button class="filter-btn active btn" data-status="" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">全部</button>
-                    <button class="filter-btn btn" data-status="processing" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">处理中</button>
-                    <button class="filter-btn btn" data-status="done" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">已完成</button>
-                    <button class="filter-btn btn" data-status="failed" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">失败</button>
-                </div>
-
-                <div id="task-grid" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
-                
-                <div class="empty-state" id="task-empty" style="display: none; padding: 2rem 1rem;">
-                    <p>暂无任务记录</p>
-                </div>
-
-                <div class="pagination" id="task-pagination" style="display: none; justify-content: space-between; margin-top: 1.5rem;">
-                    <button class="btn" onclick="loadTasks(-7)" id="task-prev">←</button>
-                    <span id="task-page-info" style="font-size: 0.75rem;"></span>
-                    <button class="btn" onclick="loadTasks(7)" id="task-next">→</button>
-                </div>
-            </aside>
-        </div>
+            <!-- File list -->
+            <div class="file-list-container" id="file-list-container" style="display: none;">
+                <table class="file-list-table">
+                    <thead>
+                        <tr>
+                            <th class="col-cb"><input type="checkbox" id="file-list-select-all" onchange="toggleAllVideos(this.checked)"></th>
+                            <th class="col-name">文件名</th>
+                            <th class="col-size">大小</th>
+                            <th class="col-status">状态</th>
+                            <th class="col-actions">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="file-list-body"></tbody>
+                </table>
+            </div>
+            <div class="video-grid" id="video-grid" style="display: none;"></div>
+            <div class="empty-state" id="video-empty" style="display: none;">
+                <div class="empty-icon">🎬</div>
+                <p>未发现视频文件，请检查设置中的目录映射。</p>
+            </div>
+            <div class="pagination" id="video-pagination" style="display: none; justify-content: space-between; margin-top: 1.5rem;">
+                <button class="btn" onclick="changeVideoPage(-1)" id="video-prev-btn">←</button>
+                <span id="video-page-info" style="font-size: 0.75rem;"></span>
+                <button class="btn" onclick="changeVideoPage(1)" id="video-next-btn">→</button>
+            </div>
+        </section>
     </main>
+
+    <!-- Task Drawer -->
+    <div class="drawer-overlay" id="task-drawer-overlay" style="display: none;" onclick="closeTaskDrawer()"></div>
+    <aside class="task-drawer" id="task-drawer">
+        <div class="drawer-header">
+            <h2 style="font-size: 1rem; font-weight: 700;">📜 任务历史</h2>
+            <button class="btn" onclick="closeTaskDrawer()" style="padding: 0.2rem 0.5rem;">&times;</button>
+        </div>
+        <div class="drawer-body">
+            <div id="running-section" style="display: none; margin-bottom: 1rem;">
+                <div class="running-counter">
+                    <div class="running-icon">⏳</div>
+                    <div class="running-info">
+                        <span class="running-label">正在处理</span>
+                        <span class="running-count" id="running-count">0 个任务</span>
+                    </div>
+                    <div class="running-bar"><div class="running-bar-inner"></div></div>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                <select id="filter-type" onchange="loadTasks()" class="btn" style="flex: 1; padding: 0.35rem;">
+                    <option value="">全部类型</option>
+                    <option value="test">测试</option>
+                    <option value="video_subtitle">字幕</option>
+                    <option value="webhook">Webhook</option>
+                </select>
+            </div>
+
+            <div style="display: flex; gap: 0.25rem; margin-bottom: 1rem; overflow-x: auto; padding-bottom: 0.5rem;">
+                <button class="filter-btn active btn" data-status="" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">全部</button>
+                <button class="filter-btn btn" data-status="processing" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">处理中</button>
+                <button class="filter-btn btn" data-status="done" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">已完成</button>
+                <button class="filter-btn btn" data-status="failed" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">失败</button>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                <label class="select-all-label">
+                    <input type="checkbox" id="task-select-all" onchange="toggleAllTasks(this.checked)"> 全选
+                </label>
+                <div style="display: flex; gap: 0.4rem;">
+                    <button class="section-refresh" onclick="loadTasks()">&#8635;</button>
+                    <button class="btn btn-danger" id="batch-del-btn" style="display: none; padding: 0.25rem 0.5rem; font-size: 0.7rem;" onclick="batchDeleteTasks()">批量删除</button>
+                </div>
+            </div>
+
+            <div id="task-grid" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
+
+            <div class="empty-state" id="task-empty" style="display: none; padding: 2rem 1rem;">
+                <p>暂无任务记录</p>
+            </div>
+
+            <div class="pagination" id="task-pagination" style="display: none; justify-content: space-between; margin-top: 1.5rem;">
+                <button class="btn" onclick="loadTasks(-7)" id="task-prev">←</button>
+                <span id="task-page-info" style="font-size: 0.75rem;"></span>
+                <button class="btn" onclick="loadTasks(7)" id="task-next">→</button>
+            </div>
+        </div>
+    </aside>
 
     <!-- Settings Modal -->
     <div class="modal-overlay" id="settings-modal" style="display: none;">
@@ -250,6 +270,19 @@
                     <button class="btn" data-sub="bilingual" onclick="setPlayerSub('bilingual')">双语</button>
                 </div>
                 <span id="player-sub-status" style="font-size: 0.75rem; color: var(--text-muted);"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subtitle Preview Modal -->
+    <div class="modal-overlay" id="sub-preview-modal" style="display: none;">
+        <div class="modal-panel" style="max-width: 700px;">
+            <div class="modal-header">
+                <h2 id="sub-preview-title" style="font-size: 1rem;">字幕预览</h2>
+                <button class="btn" onclick="closeSubPreview()" style="padding: 0.2rem 0.5rem;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="sub-preview" id="sub-preview-content">加载中...</div>
             </div>
         </div>
     </div>
@@ -492,14 +525,63 @@
         let allVideos = [];
         let videoPage = 0;
         const VIDEO_PAGE_SIZE = 12;
+        let currentDirPath = '';
+        let currentBreadcrumbList = [];
+
+        function openTaskDrawer() {
+            document.getElementById('task-drawer-overlay').style.display = 'block';
+            document.getElementById('task-drawer').classList.add('open');
+            loadTasks();
+        }
+        function closeTaskDrawer() {
+            document.getElementById('task-drawer-overlay').style.display = 'none';
+            document.getElementById('task-drawer').classList.remove('open');
+        }
+
+        function openSubPreview(path) {
+            document.getElementById('sub-preview-title').textContent = '字幕预览';
+            document.getElementById('sub-preview-content').textContent = '加载中...';
+            document.getElementById('sub-preview-modal').style.display = 'flex';
+            fetch(`/api/videos/subtitle/status?path=${encodeURIComponent(path)}`).then(r => r.json()).then(d => {
+                if (d.progress === 'done' && d.segments && d.segments.length) {
+                    document.getElementById('sub-preview-content').innerHTML = renderSubPreview(d.segments, d.translated || []);
+                } else {
+                    document.getElementById('sub-preview-content').textContent = '字幕未生成或无内容';
+                }
+            });
+        }
+        function closeSubPreview() {
+            document.getElementById('sub-preview-modal').style.display = 'none';
+        }
+        function renderSubPreview(segments, translated) {
+            return segments.map((seg, i) => {
+                const trans = translated[i];
+                const fmtTime = (t) => {
+                    const h = String(Math.floor(t / 3600)).padStart(2, '0');
+                    const m = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
+                    const s = String(Math.floor(t % 60)).padStart(2, '0');
+                    const ms = String(Math.floor((t % 1) * 1000)).padStart(3, '0');
+                    return `${h}:${m}:${s},${ms}`;
+                };
+                return `<div class="sub-preview-seg">
+                    <div class="sub-preview-time">${fmtTime(seg.start)} --> ${fmtTime(seg.end)}</div>
+                    <div class="sub-preview-source">${escHtml(seg.text)}</div>
+                    ${trans ? `<div class="sub-preview-target">${escHtml(trans.text)}</div>` : ''}
+                </div>`;
+            }).join('');
+        }
 
         async function scanVideos() {
             try {
                 const resp = await fetch('/api/videos');
                 const data = await resp.json();
                 allVideos = data.videos || [];
+                currentVideoDirs = data.dirs || [];
                 videoPage = 0;
                 document.getElementById('video-search-input').value = '';
+
+                currentDirPath = '';
+                currentBreadcrumbList = [];
                 renderVideoPage();
             } catch (e) {}
         }
@@ -512,6 +594,108 @@
             );
         }
 
+        function getRelativePath(fullPath, rootDirs) {
+            for (const root of rootDirs) {
+                if (fullPath.startsWith(root + '/') || fullPath === root) {
+                    let rel = fullPath.substring(root.length);
+                    if (rel.startsWith('/')) rel = rel.substring(1);
+                    return rel || '.';
+                }
+            }
+            return fullPath.split('/').pop();
+        }
+
+        function buildDirTree(videos, currentPath, rootDirs) {
+            const subdirs = new Set();
+            const files = [];
+            const currentParts = currentPath ? currentPath.split('/') : [];
+
+            // Determine effectiveParts: strip monitored dir basename from front if present
+            let effectiveParts = currentParts;
+            if (currentParts.length > 0) {
+                for (const root of rootDirs) {
+                    const rootName = root.split('/').pop();
+                    if (currentParts[0] === rootName) {
+                        effectiveParts = currentParts.slice(1);
+                        break;
+                    }
+                }
+            }
+
+            for (const v of videos) {
+                const rel = getRelativePath(v.path, rootDirs);
+                if (rel === '.') { files.push(v); continue; }
+                const parts = rel.split('/');
+
+                if (currentParts.length === 0) {
+                    // Root level: show monitored directory names as top-level entries
+                    let rootName = null;
+                    for (const root of rootDirs) {
+                        if (v.path.startsWith(root + '/')) {
+                            rootName = root.split('/').pop();
+                            break;
+                        }
+                    }
+                    if (rootName) subdirs.add(rootName);
+                } else if (effectiveParts.length === 0) {
+                    // Inside a monitored dir at its root level
+                    if (parts.length === 1) {
+                        files.push(v);
+                    } else {
+                        subdirs.add(parts[0]);
+                    }
+                } else {
+                    // Deeper inside a monitored dir
+                    const matches = effectiveParts.every((p, i) => parts[i] === p);
+                    if (!matches) continue;
+                    if (parts.length === effectiveParts.length + 1) {
+                        files.push(v);
+                    } else if (parts.length > effectiveParts.length + 1) {
+                        subdirs.add(parts[effectiveParts.length]);
+                    }
+                }
+            }
+
+            return {
+                subdirs: [...subdirs].sort(),
+                files: files.sort((a, b) => a.name.localeCompare(b.name)),
+            };
+        }
+
+        function renderBreadcrumb() {
+            const el = document.getElementById('video-breadcrumb');
+            if (currentBreadcrumbList.length === 0) {
+                el.style.display = 'none';
+                return;
+            }
+            el.style.display = 'flex';
+            let html = `<span class="breadcrumb-segment breadcrumb-root" onclick="navigateTo('')">监控目录</span>`;
+            for (let i = 0; i < currentBreadcrumbList.length; i++) {
+                const isLast = i === currentBreadcrumbList.length - 1;
+                const path = currentBreadcrumbList.slice(0, i + 1).join('/');
+                html += `<span class="breadcrumb-separator">&gt;</span>`;
+                if (isLast) {
+                    html += `<span class="breadcrumb-segment active">${escHtml(currentBreadcrumbList[i])}</span>`;
+                } else {
+                    html += `<span class="breadcrumb-segment" onclick="navigateTo('${path.replace(/'/g, "\\'")}')">${escHtml(currentBreadcrumbList[i])}</span>`;
+                }
+            }
+            el.innerHTML = html;
+        }
+
+        function navigateTo(relativePath) {
+            currentDirPath = relativePath;
+            currentBreadcrumbList = relativePath ? relativePath.split('/') : [];
+            videoPage = 0;
+            document.getElementById('file-list-select-all').checked = false;
+            selectedVideos.clear();
+            renderVideoPage();
+        }
+
+        function escHtml(str) {
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
         function onVideoSearch() {
             videoPage = 0;
             renderVideoPage();
@@ -519,64 +703,85 @@
 
         function changeVideoPage(delta) {
             const filtered = getFilteredVideos();
-            const maxPage = Math.max(0, Math.ceil(filtered.length / VIDEO_PAGE_SIZE) - 1);
+            const tree = buildDirTree(filtered, currentDirPath, currentVideoDirs);
+            const maxPage = Math.max(0, Math.ceil(tree.files.length / VIDEO_PAGE_SIZE) - 1);
             videoPage = Math.max(0, Math.min(maxPage, videoPage + delta));
             renderVideoPage();
         }
 
         function renderVideoPage() {
             const filtered = getFilteredVideos();
-            const grid = document.getElementById('video-grid');
+            const tree = buildDirTree(filtered, currentDirPath, currentVideoDirs);
+            const listContainer = document.getElementById('file-list-container');
+            const listBody = document.getElementById('file-list-body');
             const empty = document.getElementById('video-empty');
             const batchBtn = document.getElementById('batch-gen-btn');
             const pagin = document.getElementById('video-pagination');
-            document.getElementById('video-select-all').checked = false;
+            document.getElementById('file-list-select-all').checked = false;
             selectedVideos.clear();
             batchBtn.style.display = 'none';
-            grid.innerHTML = '';
 
-            if (!filtered.length) {
+            renderBreadcrumb();
+
+            const totalItems = tree.subdirs.length + tree.files.length;
+            if (!totalItems) {
+                listContainer.style.display = 'none';
                 empty.style.display = 'block';
                 pagin.style.display = 'none';
                 return;
             }
             empty.style.display = 'none';
+            listContainer.style.display = 'block';
 
-            const totalPages = Math.max(1, Math.ceil(filtered.length / VIDEO_PAGE_SIZE));
+            let html = '';
+
+            // Directory rows (not paginated, always shown)
+            for (const dir of tree.subdirs) {
+                const dirPath = currentDirPath ? currentDirPath + '/' + dir : dir;
+                const escapedPath = dirPath.replace(/'/g, "\\'");
+                const escapedName = escHtml(dir);
+                html += `<tr class="dir-row" onclick="navigateTo('${escapedPath}')">
+                    <td class="col-cb"></td>
+                    <td class="col-name"><div class="file-name"><span class="file-icon">📁</span>${escapedName}</div></td>
+                    <td class="col-size"><span style="color:var(--text-muted);">--</span></td>
+                    <td class="col-status"></td>
+                    <td class="col-actions"><button class="dir-action-arrow" onclick="event.stopPropagation();navigateTo('${escapedPath}')" title="进入">&rarr;</button></td>
+                </tr>`;
+            }
+
+            // File rows (paginated)
+            const totalPages = Math.max(1, Math.ceil(tree.files.length / VIDEO_PAGE_SIZE));
             videoPage = Math.min(videoPage, totalPages - 1);
             const start = videoPage * VIDEO_PAGE_SIZE;
-            const pageVideos = filtered.slice(start, start + VIDEO_PAGE_SIZE);
+            const pageFiles = tree.files.slice(start, start + VIDEO_PAGE_SIZE);
 
-            pageVideos.forEach(v => {
-                const card = document.createElement('div');
-                card.className = 'video-card';
+            for (const v of pageFiles) {
                 const sCls = v.processing ? 'pending' : (v.has_subtitle ? 'done' : 'pending');
                 const sTxt = v.processing ? '处理中' : (v.has_subtitle ? '已有字幕' : '待处理');
-                card.innerHTML = `
-                    <div class="card-top">
-                        <label class="card-check">
-                            <input type="checkbox" data-video-path="${v.path.replace(/"/g, "&quot;")}" onchange="onVideoSelect(this)">
-                            <span class="card-title" title="${v.name}">${v.name}</span>
-                        </label>
-                        <span class="badge ${sCls}">${sTxt}</span>
-                    </div>
-                    <div class="card-meta">
-                        <span title="${v.path}">${v.path}</span>
-                    </div>
-                    <div class="card-meta">
-                        <span>${(v.size / (1024 * 1024)).toFixed(1)} MB</span>
-                    </div>
-                    <div class="card-actions">
-                        <button class="btn" onclick="openPlayer('${v.path.replace(/'/g, "\\'")}','${v.name.replace(/'/g, "\\'")}')">播放</button>
-                        <button class="btn btn-primary" onclick="genSub('${v.path.replace(/'/g, "\\'")}')">${v.has_subtitle ? '重新生成' : '生成字幕'}</button>
-                    </div>`;
-                grid.appendChild(card);
-            });
+                const safePath = v.path.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+                const safeName = v.name.replace(/'/g, "\\'");
+                const sizeMb = (v.size / (1024 * 1024)).toFixed(1);
+                html += `<tr>
+                    <td class="col-cb"><input type="checkbox" data-video-path="${safePath}" onchange="onVideoSelect(this)"></td>
+                    <td class="col-name"><div class="file-name" title="${escHtml(v.name)}"><span class="file-icon">🎬</span>${escHtml(v.name)}</div></td>
+                    <td class="col-size"><span class="file-col-size">${sizeMb} MB</span></td>
+                    <td class="col-status"><span class="file-col-status"><span class="badge ${sCls}">${sTxt}</span></span></td>
+                    <td class="col-actions">
+                        <div class="file-col-actions">
+                            <button class="btn" onclick="openPlayer('${safePath}','${safeName}')">播放</button>
+                            <button class="btn btn-primary" onclick="genSub('${safePath}')">${v.has_subtitle ? '重新生成' : '生成字幕'}</button>
+                            ${v.has_subtitle ? `<button class="btn" onclick="openSubPreview('${safePath}')">字幕</button>` : ''}
+                        </div>
+                    </td>
+                </tr>`;
+            }
+
+            listBody.innerHTML = html;
 
             // Pagination
             if (totalPages > 1) {
                 pagin.style.display = 'flex';
-                document.getElementById('video-page-info').textContent = `第 ${videoPage + 1} / ${totalPages} 页 (共 ${filtered.length} 个)`;
+                document.getElementById('video-page-info').textContent = `第 ${videoPage + 1} / ${totalPages} 页 (共 ${tree.files.length} 个文件)`;
                 document.getElementById('video-prev-btn').disabled = videoPage === 0;
                 document.getElementById('video-next-btn').disabled = videoPage >= totalPages - 1;
             } else {
@@ -680,7 +885,7 @@
         let selectedTasks = new Set();
 
         function toggleAllVideos(checked) {
-            document.querySelectorAll('#video-grid input[type="checkbox"]').forEach(cb => {
+            document.querySelectorAll('#file-list-body input[type="checkbox"]').forEach(cb => {
                 cb.checked = checked;
                 if (checked) selectedVideos.add(cb.dataset.videoPath);
                 else selectedVideos.delete(cb.dataset.videoPath);
@@ -691,7 +896,7 @@
         function onVideoSelect(cb) {
             const path = cb.dataset.videoPath;
             if (cb.checked) selectedVideos.add(path); else selectedVideos.delete(path);
-            document.getElementById('video-select-all').checked = selectedVideos.size > 0 && document.querySelectorAll('#video-grid input[type="checkbox"]:checked').length === selectedVideos.size;
+            document.getElementById('file-list-select-all').checked = selectedVideos.size > 0 && document.querySelectorAll('#file-list-body input[type="checkbox"]:checked').length === selectedVideos.size;
             document.getElementById('batch-gen-btn').style.display = selectedVideos.size ? '' : 'none';
         }
 
@@ -805,8 +1010,6 @@
         // --- Init ---
         loadConfig();
         scanVideos();
-        loadTasks();
-        setInterval(loadTasks, 5000);
     </script>
 </body>
 </html>
