@@ -194,6 +194,7 @@
                                 <div class="tag-selector" id="translate-engine-tags" style="margin-bottom: 0.5rem;">
                                     <div class="tag-option" data-value="Qwen/Qwen3-0.6B">Qwen3 0.6B (本地)</div>
                                     <div class="tag-option" data-value="Qwen/Qwen3-1.7B">Qwen3 1.7B (本地)</div>
+                                    <div class="tag-option" data-value="tencent/Hy-MT2-1.8B">Hy-MT2 1.8B (本地)</div>
                                     <div class="tag-option" data-value="__online__">在线 API</div>
                                 </div>
                                 <input type="hidden" id="translate_mode">
@@ -363,6 +364,7 @@
         const TRANSLATE_ENGINE_MAP = {
             'Qwen/Qwen3-0.6B': { mode: 'local', model_local: 'Qwen/Qwen3-0.6B' },
             'Qwen/Qwen3-1.7B': { mode: 'local', model_local: 'Qwen/Qwen3-1.7B' },
+            'tencent/Hy-MT2-1.8B': { mode: 'local', model_local: 'tencent/Hy-MT2-1.8B' },
             '__online__': { mode: 'online' },
         };
 
@@ -423,7 +425,7 @@
                     : (cfg.translate_model_local || 'Qwen/Qwen3-0.6B');
                 selectTranslateEngine(transTagValue);
                 // Override model_local if user had a custom value not in the tag list
-                const KNOWN_MODELS = ['Qwen/Qwen3-0.6B', 'Qwen/Qwen3-1.7B'];
+                const KNOWN_MODELS = ['Qwen/Qwen3-0.6B', 'Qwen/Qwen3-1.7B', 'tencent/Hy-MT2-1.8B'];
                 if (cfg.translate_model_local && !KNOWN_MODELS.includes(cfg.translate_model_local)) {
                     document.getElementById('translate_model_local').value = cfg.translate_model_local;
                 }

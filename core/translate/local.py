@@ -79,11 +79,12 @@ def load_local_model(model_name: str, device: str | None = None):
             device = "cpu"
 
     logger.info("Loading translation model %s on %s", model_name, device)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     dtype = torch.bfloat16 if device == "cuda" else torch.float16
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=dtype,
+        trust_remote_code=True,
     ).to(device)
     _local_model = {
         "tokenizer": tokenizer,
