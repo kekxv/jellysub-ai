@@ -267,7 +267,10 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 docker build -t jellysub-ai .
 
 docker run -d -p 8000:8000 \
+  -e ADMIN_USERNAME="your_admin_username" \
   -e ADMIN_PASSWORD="your_secure_password" \
+  -e SESSION_SECRET="generate-a-random-secret-with-at-least-32-characters" \
+  -e SESSION_HTTPS_ONLY=true \
   -e MODEL_SOURCE="modelscope" \
   -v $(pwd)/model_cache:/app/model_cache \
   -v $(pwd)/tasks.db:/app/tasks.db \
@@ -289,7 +292,8 @@ services:
     environment:
       - ADMIN_USERNAME=myuser
       - ADMIN_PASSWORD=mypassword
-      - SESSION_SECRET=random_string_here
+      - SESSION_SECRET=generate-a-random-secret-with-at-least-32-characters
+      - SESSION_HTTPS_ONLY=true
       - MODEL_SOURCE=modelscope
       - MODEL_IDLE_TIMEOUT=300
     volumes:

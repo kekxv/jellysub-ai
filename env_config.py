@@ -15,6 +15,7 @@ ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
 TOTP_SECRET: str = os.getenv("TOTP_SECRET", "")
 SESSION_SECRET: str = os.getenv("SESSION_SECRET", "")
+SESSION_HTTPS_ONLY: bool = os.getenv("SESSION_HTTPS_ONLY", "true").lower() in {"1", "true", "yes"}
 
 # --- Webhook ---
 WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "")
@@ -22,6 +23,14 @@ WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "")
 # --- 模型下载源 ---
 # "huggingface" | "modelscope" | "" (默认 huggingface)
 MODEL_SOURCE: str = os.getenv("MODEL_SOURCE", "")
+
+
+def validate_security_config(username: str, password: str, session_secret: str) -> None:
+    """Reject credentials and session keys that are unsafe for a running service."""
+    if not username or not password or (username == "admin" and password == "admin"):
+        raise RuntimeError("Set non-default ADMIN_USERNAME and ADMIN_PASSWORD")
+    if len(session_secret) < 32 or session_secret == "change_me_in_production":
+        raise RuntimeError("Set a random SESSION_SECRET of at least 32 characters")
 
 # --- 模型空闲超时 ---
 # 空闲 N 秒后自动释放模型，降低内存压力。0 表示不释放（默认不释放）。

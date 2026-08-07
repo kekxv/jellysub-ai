@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from config import AppConfig
-from main import app
+from main import _credential_hash, app
 
 
 @pytest.fixture(autouse=True)
@@ -44,17 +44,35 @@ def reset_config():
 
 def _authenticated_client(client: TestClient) -> TestClient:
     """给 TestClient 设置认证 session。"""
+    username = os.getenv("ADMIN_USERNAME", "admin")
+    password = os.getenv("ADMIN_PASSWORD", "admin")
     client.post("/login", json={
-        "username": os.getenv("ADMIN_USERNAME", "admin"),
-        "password": os.getenv("ADMIN_PASSWORD", "admin"),
+        "username": username,
+        "password": _credential_hash(username, password),
         "totp_code": "",  # 无 TOTP_SECRET 时跳过
     })
     return client
 
 
+@pytest.fixture
+def client() -> TestClient:
+    return TestClient(app, base_url="https://testserver")
+
+
+def test_login_accepts_browser_credential_hash(client):
+    """Login accepts the hash produced by the browser login client."""
+    response = client.post("/login", json={
+        "username": "admin",
+        "password": _credential_hash("admin", "admin"),
+        "totp_code": "",
+    })
+
+    assert response.json() == {"status": "ok"}
+
+
 def test_index_returns_html():
     """GET / 应返回 HTML 页面。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
@@ -63,7 +81,7 @@ def test_index_returns_html():
 
 def test_get_config():
     """GET /api/config 应返回当前配置。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     _authenticated_client(client)
     resp = client.get("/api/config")
     assert resp.status_code == 200
@@ -75,14 +93,14 @@ def test_get_config():
 
 def test_get_config_unauthenticated():
     """未认证时 GET /api/config 应返回 401。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     resp = client.get("/api/config", follow_redirects=False)
     assert resp.status_code == 401
 
 
 def test_put_config():
     """PUT /api/config 应保存新配置。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     _authenticated_client(client)
     new_cfg = {
         "jellyfin_url": "http://new:9096",
@@ -111,7 +129,7 @@ def test_put_config():
 
 def test_webhook_accepts_movie():
     """POST /webhook 接受 Movie 类型。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     payload = {
         "Name": "Test Movie",
         "ItemId": "abc123",
@@ -127,7 +145,7 @@ def test_webhook_accepts_movie():
 
 def test_webhook_accepts_episode():
     """POST /webhook 接受 Episode 类型。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     payload = {
         "Name": "Episode 1",
         "ItemId": "ep001",
@@ -141,7 +159,7 @@ def test_webhook_accepts_episode():
 
 def test_webhook_skips_non_video():
     """POST /webhook 跳过非视频类型。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     for item_type in ("Music", "Book", "Photo", "Series"):
         payload = {"Name": "Test", "ItemId": "1", "Path": "/test", "ItemType": item_type}
         resp = client.post("/webhook", json=payload)
@@ -151,7 +169,7 @@ def test_webhook_skips_non_video():
 
 def test_webhook_missing_path():
     """POST /webhook 缺少 Path 应返回错误。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     payload = {"Name": "Test", "ItemId": "1", "ItemType": "Movie"}
     resp = client.post("/webhook", json=payload)
     assert resp.status_code == 200
@@ -160,7 +178,7 @@ def test_webhook_missing_path():
 
 def test_webhook_missing_item_id():
     """POST /webhook 缺少 ItemId 应返回错误。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     payload = {"Name": "Test", "Path": "/test.mp4", "ItemType": "Movie"}
     resp = client.post("/webhook", json=payload)
     assert resp.status_code == 200
@@ -170,7 +188,7 @@ def test_webhook_missing_item_id():
 def test_webhook_rejects_invalid_signature():
     """POST /webhook 带 WEBHOOK_SECRET 时应校验签名。"""
     with patch("main.WEBHOOK_SECRET", "test-secret"):
-        client = TestClient(app)
+        client = TestClient(app, base_url="https://testserver")
         payload = {
             "Name": "Test Movie",
             "ItemId": "abc123",
@@ -192,7 +210,7 @@ def test_webhook_rejects_invalid_signature():
 
 def test_static_files_served():
     """静态文件应可通过 /static/ 访问。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     resp = client.get("/static/style.css")
     assert resp.status_code == 200
 
@@ -200,7 +218,7 @@ def test_static_files_served():
 
 def test_login_redirect_when_authenticated():
     """已登录用户访问 /login 应重定向到 /admin。"""
-    client = TestClient(app)
+    client = TestClient(app, base_url="https://testserver")
     _authenticated_client(client)
     resp = client.get("/login", follow_redirects=False)
     assert resp.status_code == 302

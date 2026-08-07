@@ -28,6 +28,8 @@ from env_config import (
     TOTP_SECRET,
     WEBHOOK_SECRET,
     SESSION_SECRET,
+    SESSION_HTTPS_ONLY,
+    validate_security_config,
 )
 
 logging.basicConfig(
@@ -39,6 +41,7 @@ logger = logging.getLogger("uvicorn.error")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_security_config(ADMIN_USERNAME, ADMIN_PASSWORD, SESSION_SECRET)
     cfg = get_config()
     task_manager.start_worker(preload_hook=lambda: _preload_models(cfg))
     yield
@@ -56,8 +59,12 @@ app.add_middleware(
 )
 
 # Session 中间件
-session_secret = SESSION_SECRET or os.urandom(32).hex()
-app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=86400)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    max_age=86400,
+    https_only=SESSION_HTTPS_ONLY,
+)
 
 # 挂载静态文件
 static_dir = Path(__file__).parent / "static"
