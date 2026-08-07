@@ -1,4 +1,5 @@
 import importlib
+import re
 import tomllib
 from pathlib import Path
 
@@ -26,6 +27,20 @@ def test_production_dockerfiles_use_reproducible_non_root_runtime():
         assert "COPY --from=builder /app/.venv /app/.venv" in dockerfile
         assert "COPY . ." not in dockerfile
         assert "USER app" in dockerfile
+
+
+def test_cpu_and_gpu_images_use_the_same_explicit_app_uid_and_gid():
+    identities = []
+    for path in DOCKERFILES:
+        dockerfile = path.read_text(encoding="utf-8")
+        uid = re.search(r"useradd .*--uid (\d+).* app", dockerfile)
+        gid = re.search(r"groupadd .*--gid (\d+) app", dockerfile)
+
+        assert uid is not None, f"{path} must assign an explicit app UID"
+        assert gid is not None, f"{path} must assign an explicit app GID"
+        identities.append((uid.group(1), gid.group(1)))
+
+    assert identities[0] == identities[1]
 
 
 def test_production_dockerfiles_keep_mutable_state_in_data_volume():

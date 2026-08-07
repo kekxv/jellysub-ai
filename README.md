@@ -86,29 +86,24 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000
 
 #### 3. 配置签名校验（推荐）
 
-Jellyfin Webhook 插件支持通过 `X-Jellyfin-Signature` 请求头发送签名。本服务使用 SHA256 哈希校验来验证请求来源，防止未授权调用。
+Jellyfin Webhook 发送方必须通过 `X-Jellyfin-Signature` 请求头发送签名。本服务使用请求原始 body 的 HMAC-SHA256 验证来源，防止未授权调用。
 
 **步骤：**
 
-1. **选择一个共享密钥**（任意字符串，例如 `my-secret-key-2026`）
-2. **计算该密钥的 SHA256 哈希值**：
+1. **生成并保存一个随机共享密钥**：
    ```bash
-   echo -n "my-secret-key-2026" | sha256sum
-   # 输出示例: a1b2c3d4e5f6...（64位十六进制字符串）
+   export WEBHOOK_SECRET="$(openssl rand -hex 32)"
+   printf 'WEBHOOK_SECRET=%s\n' "$WEBHOOK_SECRET" >> .env
    ```
-3. **在 Jellyfin Webhook 插件中**，找到 **Shared Secret** 或 **Custom Headers** 字段：
-   - 如果插件有 **Shared Secret** 字段：直接填入你选择的原始密钥（`my-secret-key-2026`），插件会自动计算签名
-   - 如果插件只有 **Custom Headers** 字段：手动添加一个 Header：
-     - **Name**: `X-Jellyfin-Signature`
-     - **Value**: 上一步算出的 SHA256 哈希值
-4. **在本服务的 `.env` 文件中**设置相同的密钥：
+2. **在 Jellyfin Webhook 插件或中间发送器中**配置同一密钥，并令其针对每次请求计算：
    ```bash
-   WEBHOOK_SECRET=my-secret-key-2026
+   HMAC-SHA256(WEBHOOK_SECRET, raw_request_body)
    ```
+   将 64 位小写十六进制结果写入 `X-Jellyfin-Signature`。该值取决于每次请求的原始 body，不能配置为固定的 Custom Header。
 
-**校验原理：** 本服务收到请求后，会计算 `sha256(WEBHOOK_SECRET)` 并与请求头中的 `X-Jellyfin-Signature` 值对比。两者必须完全一致。
+**校验原理：** 本服务在解析 JSON 前计算 `HMAC-SHA256(WEBHOOK_SECRET, raw_request_body)`，并使用恒定时间比较与请求头中的签名核对。
 
-> **注意：** 如果 `WEBHOOK_SECRET` 为空（默认），签名校验将被跳过。开发测试时可不设置，但生产环境强烈建议启用。
+> **注意：** 如果 `WEBHOOK_SECRET` 为空（默认），Webhook 端点会被禁用并返回 HTTP 503。
 
 #### 4. 配置触发事件
 
@@ -143,22 +138,15 @@ Jellyfin Webhook 插件默认发送的 JSON payload 包含以下字段，本服�
 以下是一个从密钥设置到 Jellyfin 配置的完整流程：
 
 ```bash
-# --- 第一步：生成密钥的 SHA256 ---
-echo -n "jellysub-webhook-secret" | sha256sum
-# 输出: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+# --- 第一步：生成随机密钥并写入 .env ---
+export WEBHOOK_SECRET="$(openssl rand -hex 32)"
+printf 'WEBHOOK_SECRET=%s\n' "$WEBHOOK_SECRET" >> .env
 
-# --- 第二步：在 .env 中配置 ---
-cat >> .env << 'EOF'
-WEBHOOK_SECRET=jellysub-webhook-secret
-EOF
-
-# --- 第三步：重启本服务 ---
+# --- 第二步：重启本服务 ---
 uv run uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-然后在 Jellyfin Webhook 插件中：
-- **Shared Secret** 填写 `jellysub-webhook-secret`（插件会自动计算 SHA256）
-- 或者 **Custom Headers** 添加 `X-Jellyfin-Signature: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+然后在支持 HMAC-SHA256 body 签名的 Jellyfin Webhook 发送方中配置 `$WEBHOOK_SECRET`。如果所用插件不支持动态 body 签名，需要通过支持该签名方式的中间发送器转发，固定 Header 无法通过校验。
 
 #### 7. Webhook 响应说明
 
@@ -170,7 +158,8 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000
 | `{"status": "skipped", "reason": "unsupported type"}` | 非视频类型（音乐、图片等），跳过 |
 | `{"status": "skipped", "reason": "subtitle already exists"}` | 已有有效中文字幕，跳过 |
 | `{"status": "skipped", "reason": "internal subtitle"}` | 视频自带内置字幕，跳过 |
-| `{"status": "error", "reason": "invalid signature"}` | 签名校验失败，请检查 `WEBHOOK_SECRET` |
+| HTTP 401 `{"detail": "Invalid webhook signature"}` | 签名校验失败，请检查 `WEBHOOK_SECRET` 和原始 body |
+| HTTP 503 `{"detail": "Webhook secret is not configured"}` | 未配置密钥，端点已禁用 |
 | `{"status": "error", "reason": "missing Path or ItemId"}` | 请求缺少必要字段 |
 
 ### 本地视频扫描
@@ -266,17 +255,23 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```bash
 docker build -t jellysub-ai .
 
+# 交互输入用户名，并为本次部署生成不可预测的密码和 session 密钥
+read -rp "Admin username: " ADMIN_USERNAME
+export ADMIN_USERNAME
+export ADMIN_PASSWORD="$(openssl rand -base64 24)"
+export SESSION_SECRET="$(openssl rand -hex 32)"
+
 docker run -d -p 8000:8000 \
-  -e ADMIN_USERNAME="your_admin_username" \
-  -e ADMIN_PASSWORD="your_secure_password" \
-  -e SESSION_SECRET="generate-a-random-secret-with-at-least-32-characters" \
+  -e ADMIN_USERNAME \
+  -e ADMIN_PASSWORD \
+  -e SESSION_SECRET \
   -e SESSION_HTTPS_ONLY=true \
   -e MODEL_SOURCE="modelscope" \
   -v jellysub-data:/data \
   --name jellysub jellysub-ai
 ```
 
-容器以非 root 的 `app` 用户运行。配置文件、任务数据库、临时音频和模型缓存统一保存在 `/data`；使用命名卷可避免把凭据写入镜像，并在容器升级后保留运行时状态。
+CPU 和 GPU 容器都以固定的非 root 身份 `app`（UID/GID `10001:10001`）运行。配置文件、任务数据库、临时音频和模型缓存统一保存在 `/data`；使用命名卷可避免把凭据写入镜像，并在容器升级后保留运行时状态。使用 bind mount 时，宿主机上的 `/data` 目录和需要写入字幕的媒体目录必须允许 `10001:10001` 写入（例如 `sudo chown -R 10001:10001 /path/to/data /path/to/media`），这样 CPU/GPU 镜像切换时权限保持兼容。
 
 #### 方案 B：Docker Compose (推荐)
 
@@ -289,12 +284,12 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ADMIN_USERNAME=myuser
-      - ADMIN_PASSWORD=mypassword
-      - SESSION_SECRET=generate-a-random-secret-with-at-least-32-characters
-      - SESSION_HTTPS_ONLY=true
-      - MODEL_SOURCE=modelscope
-      - MODEL_IDLE_TIMEOUT=300
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?Set ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
+      SESSION_HTTPS_ONLY: "true"
+      MODEL_SOURCE: modelscope
+      MODEL_IDLE_TIMEOUT: "300"
     volumes:
       - jellysub-data:/data
     restart: always

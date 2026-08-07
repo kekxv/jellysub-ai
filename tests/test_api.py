@@ -5,6 +5,8 @@ import hmac
 import json
 import os
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -224,6 +226,39 @@ def test_webhook_skips_duplicate_active_task(client, webhook_payload):
         response = _signed_webhook(client, webhook_payload)
     assert response.status_code == 200
     assert response.json()["status"] == "already_running"
+
+
+def test_concurrent_webhooks_create_only_one_active_task(webhook_payload, monkeypatch):
+    """Concurrent deliveries for one video atomically create at most one active task."""
+    probe_barrier = threading.Barrier(2)
+
+    async def synchronized_probe(_path):
+        probe_barrier.wait(timeout=5)
+        return False
+
+    monkeypatch.setattr("core.audio.has_internal_subtitle", synchronized_probe)
+
+    def deliver():
+        concurrent_client = TestClient(app, base_url="https://testserver")
+        return _signed_webhook(concurrent_client, webhook_payload)
+
+    with patch("main.WEBHOOK_SECRET", "test-secret"):
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(lambda _index: deliver(), range(2)))
+
+    assert sorted(response.json()["status"] for response in responses) == [
+        "accepted",
+        "already_running",
+    ]
+
+    from main import task_manager
+
+    active_tasks = [
+        task
+        for task in task_manager.list_tasks(limit=10)
+        if task["status"] in ("pending", "processing")
+    ]
+    assert len(active_tasks) == 1
 
 
 def test_static_files_served():

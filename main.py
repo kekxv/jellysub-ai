@@ -436,13 +436,15 @@ async def api_test_run(request: Request):
     if not test_mp4.exists():
         return {"status": "error", "reason": "en.mp4 not found in assets"}
 
-    task_id = task_manager.create_task(
+    task_id = task_manager.create_task_if_no_active(
         video_path=str(test_mp4),
         item_id="test",
         item_type="test",
         item_name="test",
         pipeline_type="test",
     )
+    if task_id is None:
+        return {"status": "already_running"}
     return {"status": "started", "task_id": task_id}
 
 
@@ -557,11 +559,13 @@ async def api_generate_subtitle(body: SubtitleJobRequest, request: Request):
             logger.info("Manual task detection: subtitle exists (%s), path=%s", reason, video_path)
             return {"status": "exists", "reason": reason}
 
-    task_id = task_manager.create_task(
+    task_id = task_manager.create_task_if_no_active(
         video_path=video_path,
         pipeline_type="video_subtitle",
         asr_language=body.asr_language,
     )
+    if task_id is None:
+        return {"status": "already_running"}
     return {"status": "started", "task_id": task_id}
 
 
@@ -755,13 +759,16 @@ async def webhook(request: Request):
         logger.info("Media has internal subtitle stream, skipping")
         return {"status": "skipped", "reason": "internal subtitle"}
 
-    task_manager.create_task(
+    task_id = task_manager.create_task_if_no_active(
         video_path=local_path,
         item_id=item_id,
         item_type=item_type,
         item_name=item_name,
         pipeline_type="webhook",
     )
+    if task_id is None:
+        logger.info("Webhook task became active concurrently: %s", local_path)
+        return {"status": "already_running"}
     return {"status": "accepted", "item": item_name}
 
 

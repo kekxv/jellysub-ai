@@ -37,8 +37,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsox3 \
     && rm -rf /var/lib/apt/lists/* \
-    && addgroup --system app \
-    && adduser --system --ingroup app --no-create-home app \
+    && groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --no-create-home app \
     && mkdir -p /app /data/model_cache /data/tmp \
     && chown -R app:app /data
 

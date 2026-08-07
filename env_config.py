@@ -25,11 +25,34 @@ WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "")
 MODEL_SOURCE: str = os.getenv("MODEL_SOURCE", "")
 
 
+_PUBLISHED_ADMIN_USERNAMES = frozenset({
+    "your-admin-username",
+    "your_admin_username",
+    "myuser",
+})
+_PUBLISHED_ADMIN_PASSWORDS = frozenset({
+    "replace-with-a-strong-password",
+    "your_secure_password",
+    "mypassword",
+})
+_PUBLISHED_SESSION_SECRETS = frozenset({
+    "change_me_in_production",
+    "replace-with-a-random-32-character-minimum-secret",
+    "generate-a-random-secret-with-at-least-32-characters",
+})
+
+
 def validate_security_config(username: str, password: str, session_secret: str) -> None:
     """Reject credentials and session keys that are unsafe for a running service."""
-    if not username or not password or (username == "admin" and password == "admin"):
+    if (
+        not username
+        or not password
+        or (username == "admin" and password == "admin")
+        or username in _PUBLISHED_ADMIN_USERNAMES
+        or password in _PUBLISHED_ADMIN_PASSWORDS
+    ):
         raise RuntimeError("Set non-default ADMIN_USERNAME and ADMIN_PASSWORD")
-    if len(session_secret) < 32 or session_secret == "change_me_in_production":
+    if len(session_secret) < 32 or session_secret in _PUBLISHED_SESSION_SECRETS:
         raise RuntimeError("Set a random SESSION_SECRET of at least 32 characters")
 
 # --- 模型空闲超时 ---
@@ -59,7 +82,7 @@ if not SESSION_SECRET:
     _warnings.append("未设置 SESSION_SECRET，session 安全性较低。建议设置为一个随机字符串。")
 
 if not WEBHOOK_SECRET:
-    logger.info("未设置 WEBHOOK_SECRET，Webhook 将不校验签名（开发模式）。")
+    logger.info("未设置 WEBHOOK_SECRET，Webhook 端点已禁用。")
 
 if MODEL_SOURCE == "modelscope":
     import os as _os

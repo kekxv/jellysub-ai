@@ -136,6 +136,30 @@ class TaskManager:
                 except sqlite3.OperationalError:
                     pass  # Column already exists
 
+        # Establish one database-level active task per video. Older databases
+        # may contain duplicates created before this invariant existed; retain
+        # the oldest active row and make the extras visible as failed tasks.
+        cur.execute("""
+            UPDATE tasks
+            SET status = 'failed',
+                stage = 'failed',
+                error_message = COALESCE(error_message || '; ', '') ||
+                    'Deactivated while enforcing active-task uniqueness',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE status IN ('pending', 'processing')
+              AND id NOT IN (
+                  SELECT MIN(id)
+                  FROM tasks
+                  WHERE status IN ('pending', 'processing')
+                  GROUP BY video_path
+              )
+        """)
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_one_active_video
+            ON tasks(video_path)
+            WHERE status IN ('pending', 'processing')
+        """)
+
         # Create task_stages table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS task_stages (
@@ -167,18 +191,48 @@ class TaskManager:
     ) -> int:
         with self._lock:
             conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                """INSERT INTO tasks
-                   (video_path, item_id, item_type, item_name, pipeline_type, asr_language, status, stage)
-                   VALUES (?, ?, ?, ?, ?, ?, 'pending', 'pending')""",
-                (video_path, item_id, item_type, item_name, pipeline_type, asr_language),
-            )
-            task_id = cur.lastrowid
-            conn.commit()
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO tasks
+                       (video_path, item_id, item_type, item_name, pipeline_type, asr_language, status, stage)
+                       VALUES (?, ?, ?, ?, ?, ?, 'pending', 'pending')""",
+                    (video_path, item_id, item_type, item_name, pipeline_type, asr_language),
+                )
+                task_id = cur.lastrowid
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
         logger.info("Task %d created: %s (%s)", task_id, video_path, pipeline_type)
         return task_id
+
+    def create_task_if_no_active(
+        self,
+        video_path: str,
+        item_id: str = "",
+        item_type: str = "",
+        item_name: str = "",
+        pipeline_type: str = "webhook",
+        asr_language: str = "auto",
+    ) -> int | None:
+        """Atomically create a pending task, or return None when one is active."""
+        try:
+            return self.create_task(
+                video_path=video_path,
+                item_id=item_id,
+                item_type=item_type,
+                item_name=item_name,
+                pipeline_type=pipeline_type,
+                asr_language=asr_language,
+            )
+        except sqlite3.IntegrityError as exc:
+            if "UNIQUE constraint failed: tasks.video_path" not in str(exc):
+                raise
+            logger.info("Task already active: %s", video_path)
+            return None
 
     def get_task(self, task_id: int) -> dict | None:
         conn = self._get_conn()
@@ -330,11 +384,14 @@ class TaskManager:
         created = []
         skipped = 0
         for path in video_paths:
-            existing = self.get_latest_by_video_path(path)
-            if existing and existing["status"] in ("pending", "processing"):
+            task_id = self.create_task_if_no_active(
+                video_path=path,
+                pipeline_type=pipeline_type,
+                asr_language=asr_language,
+            )
+            if task_id is None:
                 skipped += 1
                 continue
-            task_id = self.create_task(video_path=path, pipeline_type=pipeline_type, asr_language=asr_language)
             created.append(task_id)
         return created, skipped
 
