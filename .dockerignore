@@ -3,16 +3,30 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# 过滤大型模型和数据 (建议通过 -v 挂载)
+# 运行时状态和本地配置只能通过 /data 挂载
+config.json
+*.db
 model_cache/
-assets/*.srt
-images/
 tmp/
-tasks.db
+
+# 测试、文档和媒体不进入构建上下文
+tests/
+docs/
+assets/
+images/
+*.mp3
+*.mp4
+*.mkv
+*.mov
+*.wav
+*.srt
 
 # 过滤开发工具配置
 .git/
+.github/
 .idea/
 .claude/
 .venv/
 jellysub_ai.egg-info/
+.env
+.env.*

@@ -66,8 +66,8 @@ def cleanup_all_tmp(tmp_dir: str = "./tmp"):
 class TaskManager:
     """SQLite-backed task queue with single worker thread."""
 
-    def __init__(self, db_path: str = "tasks.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path if db_path is not None else os.environ.get("TASK_DB_PATH", "tasks.db")
         self._lock = threading.Lock()
         self._running = False
         self._worker_thread: threading.Thread | None = None

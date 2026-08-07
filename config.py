@@ -2,13 +2,14 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("uvicorn.error")
 
-_CONFIG_PATH = Path(__file__).parent / "config.json"
+_CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", Path(__file__).parent / "config.json"))
 
 
 class AppConfig(BaseModel):
@@ -35,7 +36,7 @@ class AppConfig(BaseModel):
 
     target_language: str = "zh-CN"
     path_mappings: dict[str, str] = Field(default_factory=dict)
-    temp_dir: str = "./tmp"
+    temp_dir: str = Field(default_factory=lambda: os.environ.get("TEMP_DIR", "./tmp"))
     video_dirs: list[str] = Field(default_factory=list)  # 本地视频目录列表
 
 

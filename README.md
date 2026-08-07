@@ -272,18 +272,17 @@ docker run -d -p 8000:8000 \
   -e SESSION_SECRET="generate-a-random-secret-with-at-least-32-characters" \
   -e SESSION_HTTPS_ONLY=true \
   -e MODEL_SOURCE="modelscope" \
-  -v $(pwd)/model_cache:/app/model_cache \
-  -v $(pwd)/tasks.db:/app/tasks.db \
-  -v $(pwd)/config.json:/app/config.json \
+  -v jellysub-data:/data \
   --name jellysub jellysub-ai
 ```
 
+容器以非 root 的 `app` 用户运行。配置文件、任务数据库、临时音频和模型缓存统一保存在 `/data`；使用命名卷可避免把凭据写入镜像，并在容器升级后保留运行时状态。
+
 #### 方案 B：Docker Compose (推荐)
 
-创建 `docker-compose.yml`:
+创建 `docker-compose.yml`：
 
 ```yaml
-version: '3.8'
 services:
   jellysub:
     build: .
@@ -297,9 +296,9 @@ services:
       - MODEL_SOURCE=modelscope
       - MODEL_IDLE_TIMEOUT=300
     volumes:
-      - ./model_cache:/app/model_cache
-      - ./config.json:/app/config.json
-      - ./tasks.db:/app/tasks.db
-      - ./assets:/app/assets
+      - jellysub-data:/data
     restart: always
+
+volumes:
+  jellysub-data:
 ```
