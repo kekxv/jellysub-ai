@@ -187,6 +187,17 @@ def test_webhook_rejects_signature_for_changed_body(client, webhook_payload):
     assert response.status_code == 401
 
 
+def test_webhook_rejects_invalid_signature_before_parsing_malformed_json(client):
+    """Unauthenticated malformed bodies receive the authentication response."""
+    with patch("main.WEBHOOK_SECRET", "test-secret"):
+        response = client.post(
+            "/webhook",
+            content=b"not json",
+            headers={"Content-Type": "application/json", "X-Jellyfin-Signature": "wrong"},
+        )
+    assert response.status_code == 401
+
+
 def test_webhook_rejects_mapped_path_outside_video_roots(client, webhook_payload):
     """Mapped paths outside configured video roots never reach media probing."""
     webhook_payload["Path"] = "/media/../outside.mp4"

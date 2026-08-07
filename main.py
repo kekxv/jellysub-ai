@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 import pyotp
 
@@ -693,15 +693,21 @@ class WebhookPayload(BaseModel):
 
 
 @app.post("/webhook")
-async def webhook(payload: WebhookPayload, request: Request):
+async def webhook(request: Request):
     """接收 Jellyfin Webhook，校验签名后创建字幕任务。"""
     if not WEBHOOK_SECRET:
         raise HTTPException(status_code=503, detail="Webhook secret is not configured")
 
+    raw_body = await request.body()
     signature = request.headers.get("X-Jellyfin-Signature", "")
-    if not _verify_webhook_signature(await request.body(), signature):
+    if not _verify_webhook_signature(raw_body, signature):
         logger.warning("Webhook signature mismatch from %s", request.client.host if request.client else "unknown")
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    try:
+        payload = WebhookPayload.model_validate_json(raw_body)
+    except ValidationError:
+        raise HTTPException(status_code=422, detail="Invalid webhook payload")
 
     item_id = payload.ItemId or payload.item_id
     item_path = payload.Path or payload.path
