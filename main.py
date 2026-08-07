@@ -10,12 +10,12 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 import pyotp
 
@@ -300,8 +300,8 @@ async def api_list_tasks(
     request: Request,
     status: str = None,
     pipeline_type: str = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ):
     """列出所有任务，支持分页和过滤。"""
     _require_auth(request)
@@ -352,7 +352,7 @@ async def api_delete_task(request: Request, task_id: int):
 
 
 class BatchDeleteRequest(BaseModel):
-    task_ids: list[int] = []
+    task_ids: list[int] = Field(default_factory=list, max_length=100)
 
 
 @app.post("/api/tasks/batch/delete")
@@ -531,7 +531,7 @@ class SubtitleJobRequest(BaseModel):
 
 
 class BatchSubtitleRequest(BaseModel):
-    video_paths: list[str] = []
+    video_paths: list[str] = Field(default_factory=list, max_length=100)
     force: bool = False
     asr_language: str = "auto"
 

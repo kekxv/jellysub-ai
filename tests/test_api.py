@@ -233,6 +233,45 @@ def test_static_files_served():
     assert resp.status_code == 200
 
 
+def test_tasks_limit_is_bounded(client):
+    """Task listing rejects a page size larger than the service limit."""
+    _authenticated_client(client)
+
+    response = client.get("/api/tasks?limit=101")
+
+    assert response.status_code == 422
+
+
+def test_tasks_offset_cannot_be_negative(client):
+    """Task listing rejects offsets that could reach outside pagination."""
+    _authenticated_client(client)
+
+    response = client.get("/api/tasks?offset=-1")
+
+    assert response.status_code == 422
+
+
+def test_batch_delete_rejects_more_than_100_task_ids(client):
+    """Batch deletion is bounded before it reaches the task manager."""
+    _authenticated_client(client)
+
+    response = client.post("/api/tasks/batch/delete", json={"task_ids": list(range(101))})
+
+    assert response.status_code == 422
+
+
+def test_batch_subtitle_rejects_more_than_100_video_paths(client):
+    """Batch subtitle generation rejects oversized requests before file checks."""
+    _authenticated_client(client)
+
+    response = client.post(
+        "/api/videos/subtitle/batch",
+        json={"video_paths": [f"/media/{index}.mp4" for index in range(101)]},
+    )
+
+    assert response.status_code == 422
+
+
 
 def test_login_redirect_when_authenticated():
     """已登录用户访问 /login 应重定向到 /admin。"""
