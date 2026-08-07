@@ -112,6 +112,7 @@ class TaskManager:
                     max_retries INTEGER DEFAULT 1,
                     source_segments TEXT,
                     translated_segments TEXT,
+                    asr_language TEXT DEFAULT 'auto',
                     started_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -241,6 +242,18 @@ class TaskManager:
         row = cur.fetchone()
         conn.close()
         return self._dict_row(row) if row else None
+
+    def has_active_task(self, video_path: str) -> bool:
+        """Return whether a video already has a pending or processing task."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM tasks WHERE video_path = ? AND status IN ('pending', 'processing') LIMIT 1",
+            (video_path,),
+        )
+        active = cur.fetchone() is not None
+        conn.close()
+        return active
 
     def get_latest_by_type(self, pipeline_type: str) -> dict | None:
         conn = self._get_conn()

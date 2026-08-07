@@ -10,7 +10,7 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -102,6 +102,14 @@ def check_credentials(username: str, password_hash: str, totp_code: str) -> bool
             return False
         return pyotp.TOTP(TOTP_SECRET).verify(totp_code)
     return True
+
+
+def _verify_webhook_signature(raw_body: bytes, signature: str) -> bool:
+    """Verify the Jellyfin HMAC for the exact request body."""
+    expected = hmac.new(
+        WEBHOOK_SECRET.encode(), raw_body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 
 def _require_auth(request: Request):
@@ -687,12 +695,13 @@ class WebhookPayload(BaseModel):
 @app.post("/webhook")
 async def webhook(payload: WebhookPayload, request: Request):
     """接收 Jellyfin Webhook，校验签名后创建字幕任务。"""
-    if WEBHOOK_SECRET:
-        signature = request.headers.get("X-Jellyfin-Signature", "")
-        expected = hashlib.sha256(WEBHOOK_SECRET.encode()).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            logger.warning("Webhook signature mismatch from %s", request.client.host if request.client else "unknown")
-            return {"status": "error", "reason": "invalid signature"}
+    if not WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook secret is not configured")
+
+    signature = request.headers.get("X-Jellyfin-Signature", "")
+    if not _verify_webhook_signature(await request.body(), signature):
+        logger.warning("Webhook signature mismatch from %s", request.client.host if request.client else "unknown")
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     item_id = payload.ItemId or payload.item_id
     item_path = payload.Path or payload.path
@@ -711,7 +720,19 @@ async def webhook(payload: WebhookPayload, request: Request):
 
     # Apply path mapping for local path
     cfg = get_config()
-    local_path = _apply_path_mapping(item_path, cfg.path_mappings)
+    local_path = Path(_apply_path_mapping(item_path, cfg.path_mappings)).resolve()
+    if not any(
+        local_path.is_relative_to(Path(video_dir).resolve())
+        for video_dir in cfg.video_dirs
+    ):
+        raise HTTPException(status_code=403, detail="Mapped path is outside configured video directories")
+    if not local_path.is_file():
+        raise HTTPException(status_code=404, detail="Mapped video file not found")
+    local_path = str(local_path)
+
+    if task_manager.has_active_task(local_path):
+        logger.info("Webhook task already active: %s", local_path)
+        return {"status": "already_running"}
 
     # Check existing subtitle / internal stream before creating task
     media_dir = str(Path(local_path).parent)

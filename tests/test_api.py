@@ -1,15 +1,18 @@
 """API 端点集成测试。"""
 
 import hashlib
+import hmac
 import json
 import os
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from config import AppConfig
+from core.task_manager import TaskManager
 from main import _credential_hash, app
 
 
@@ -127,85 +130,89 @@ def test_put_config():
     assert resp.json() == {"status": "saved"}
 
 
-def test_webhook_accepts_movie():
-    """POST /webhook 接受 Movie 类型。"""
-    client = TestClient(app, base_url="https://testserver")
-    payload = {
+def _signed_webhook(client: TestClient, payload: dict, signature_body: bytes | None = None):
+    raw_body = json.dumps(payload, separators=(",", ":")).encode()
+    body_to_sign = signature_body if signature_body is not None else raw_body
+    signature = hmac.new(b"test-secret", body_to_sign, hashlib.sha256).hexdigest()
+    return client.post(
+        "/webhook",
+        content=raw_body,
+        headers={"Content-Type": "application/json", "X-Jellyfin-Signature": signature},
+    )
+
+
+@pytest.fixture
+def webhook_payload(reset_config, tmp_path, monkeypatch):
+    video_root = tmp_path / "videos"
+    video_root.mkdir()
+    video_path = video_root / "test.mp4"
+    video_path.touch()
+    reset_config.video_dirs = [str(video_root)]
+    reset_config.path_mappings = {"/media": str(video_root)}
+
+    async def no_internal_subtitle(_path):
+        return False
+
+    monkeypatch.setattr("core.audio.has_internal_subtitle", no_internal_subtitle)
+    monkeypatch.setattr("core.subtitle_checker.find_existing_subtitle", lambda *_args: None)
+    monkeypatch.setattr("main.task_manager", TaskManager(str(tmp_path / "tasks.db")))
+    return {
         "Name": "Test Movie",
         "ItemId": "abc123",
-        "Path": "/media/movies/test.mp4",
+        "Path": "/media/test.mp4",
         "ItemType": "Movie",
     }
-    resp = client.post("/webhook", json=payload)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "accepted"
-    assert data["item"] == "Test Movie"
 
 
-def test_webhook_accepts_episode():
-    """POST /webhook 接受 Episode 类型。"""
-    client = TestClient(app, base_url="https://testserver")
-    payload = {
-        "Name": "Episode 1",
-        "ItemId": "ep001",
-        "Path": "/media/show/s01e01.mp4",
-        "ItemType": "Episode",
-    }
-    resp = client.post("/webhook", json=payload)
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "accepted"
+def test_webhook_rejects_when_secret_is_unset(client, webhook_payload):
+    """A missing secret must not leave the webhook endpoint open."""
+    with patch("main.WEBHOOK_SECRET", ""):
+        assert client.post("/webhook", json=webhook_payload).status_code == 503
 
 
-def test_webhook_skips_non_video():
-    """POST /webhook 跳过非视频类型。"""
-    client = TestClient(app, base_url="https://testserver")
-    for item_type in ("Music", "Book", "Photo", "Series"):
-        payload = {"Name": "Test", "ItemId": "1", "Path": "/test", "ItemType": item_type}
-        resp = client.post("/webhook", json=payload)
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "skipped"
-
-
-def test_webhook_missing_path():
-    """POST /webhook 缺少 Path 应返回错误。"""
-    client = TestClient(app, base_url="https://testserver")
-    payload = {"Name": "Test", "ItemId": "1", "ItemType": "Movie"}
-    resp = client.post("/webhook", json=payload)
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "error"
-
-
-def test_webhook_missing_item_id():
-    """POST /webhook 缺少 ItemId 应返回错误。"""
-    client = TestClient(app, base_url="https://testserver")
-    payload = {"Name": "Test", "Path": "/test.mp4", "ItemType": "Movie"}
-    resp = client.post("/webhook", json=payload)
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "error"
-
-
-def test_webhook_rejects_invalid_signature():
-    """POST /webhook 带 WEBHOOK_SECRET 时应校验签名。"""
+def test_webhook_accepts_only_body_hmac(client, webhook_payload):
+    """A valid HMAC for the exact raw request body accepts a mapped video."""
     with patch("main.WEBHOOK_SECRET", "test-secret"):
-        client = TestClient(app, base_url="https://testserver")
-        payload = {
-            "Name": "Test Movie",
-            "ItemId": "abc123",
-            "Path": "/media/movies/test.mp4",
-            "ItemType": "Movie",
-        }
-        # 无效签名
-        resp = client.post("/webhook", json=payload, headers={"X-Jellyfin-Signature": "wrong"})
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "error"
-        assert resp.json()["reason"] == "invalid signature"
+        response = _signed_webhook(client, webhook_payload)
+    assert response.status_code == 200
+    assert response.json() == {"status": "accepted", "item": "Test Movie"}
 
-        # 有效签名
-        expected = hashlib.sha256("test-secret".encode()).hexdigest()
-        resp = client.post("/webhook", json=payload, headers={"X-Jellyfin-Signature": expected})
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "accepted"
+
+def test_webhook_rejects_signature_for_changed_body(client, webhook_payload):
+    """Changing a signed request body invalidates its signature."""
+    original = json.dumps(webhook_payload, separators=(",", ":")).encode()
+    changed_payload = {**webhook_payload, "Name": "Tampered Movie"}
+    with patch("main.WEBHOOK_SECRET", "test-secret"):
+        response = _signed_webhook(client, changed_payload, signature_body=original)
+    assert response.status_code == 401
+
+
+def test_webhook_rejects_mapped_path_outside_video_roots(client, webhook_payload):
+    """Mapped paths outside configured video roots never reach media probing."""
+    webhook_payload["Path"] = "/media/../outside.mp4"
+    with patch("main.WEBHOOK_SECRET", "test-secret"):
+        response = _signed_webhook(client, webhook_payload)
+    assert response.status_code == 403
+
+
+def test_webhook_rejects_nonexistent_mapped_file(client, webhook_payload):
+    """A mapped video must exist before a task can be created."""
+    webhook_payload["Path"] = "/media/missing.mp4"
+    with patch("main.WEBHOOK_SECRET", "test-secret"):
+        response = _signed_webhook(client, webhook_payload)
+    assert response.status_code == 404
+
+
+def test_webhook_skips_duplicate_active_task(client, webhook_payload):
+    """A pending task for the mapped video prevents a duplicate webhook task."""
+    from main import task_manager
+
+    mapped_path = str(Path(task_manager.db_path).parent / "videos" / "test.mp4")
+    task_manager.create_task(mapped_path)
+    with patch("main.WEBHOOK_SECRET", "test-secret"):
+        response = _signed_webhook(client, webhook_payload)
+    assert response.status_code == 200
+    assert response.json()["status"] == "already_running"
 
 
 def test_static_files_served():
