@@ -1,4 +1,5 @@
 import importlib
+import tomllib
 from pathlib import Path
 
 import config
@@ -101,3 +102,38 @@ def test_ci_builds_cpu_and_gpu_images_with_separate_caches():
     assert "dockerfile: Dockerfile-Gpu\n" in workflow
     assert "file: ${{ matrix.dockerfile }}" in workflow
     assert "scope=${{ matrix.variant }}" in workflow
+
+
+def _package_registries(lock_path, package_name):
+    lock = tomllib.loads(Path(lock_path).read_text(encoding="utf-8"))
+    return {
+        package["source"]["registry"]
+        for package in lock["package"]
+        if package["name"] == package_name and "registry" in package.get("source", {})
+    }
+
+
+def test_cpu_lock_sources_torch_and_torchaudio_from_cpu_index():
+    cpu_index = "https://download.pytorch.org/whl/cpu"
+
+    assert _package_registries("uv.lock", "torch") == {cpu_index}
+    assert _package_registries("uv.lock", "torchaudio") == {cpu_index}
+
+
+def test_gpu_uses_dedicated_cuda_12_8_lock():
+    gpu_dockerfile = Path("Dockerfile-Gpu").read_text(encoding="utf-8")
+    cuda_index = "https://download.pytorch.org/whl/cu128"
+
+    assert "nvidia/cuda:12.8" in gpu_dockerfile
+    assert "COPY docker/gpu/pyproject.toml docker/gpu/uv.lock ./" in gpu_dockerfile
+    assert _package_registries("docker/gpu/uv.lock", "torch") == {cuda_index}
+    assert _package_registries("docker/gpu/uv.lock", "torchaudio") == {cuda_index}
+
+
+def test_ci_smoke_tests_native_torch_dependencies_after_build():
+    workflow = Path(".github/workflows/docker.yml").read_text(encoding="utf-8")
+
+    assert "import torch, torchaudio, silero_vad" in workflow
+    assert "torch.version.cuda is None" in workflow
+    assert "torch.version.cuda is not None" in workflow
+    assert "needs: smoke" in workflow
