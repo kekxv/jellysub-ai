@@ -50,3 +50,21 @@ def test_admin_renders_task_stage_progress_and_refreshes_active_work():
     assert "function stageLabel(stage)" in html
     assert 'class="progress-bar"' in html
     assert "setInterval(refreshOperationalOverview, 5000)" in html
+
+
+def test_admin_task_history_uses_scannable_semantic_task_rows():
+    """History rows must expose state, progress, and media identity at a glance."""
+    html = _admin_html()
+
+    assert 'class="task-history-summary"' in html
+    assert 'task-history-row task-history-${status.className}' in html
+    assert 'task-status-label ${status.className}' in html
+    assert 'class="task-history-path"' in html
+
+
+def test_admin_task_history_avoids_inline_layout_for_task_list():
+    """The redesigned history list needs reusable responsive layout hooks."""
+    html = _admin_html()
+
+    assert 'id="task-grid" class="task-history-list"' in html
+    assert 'id="task-pagination" class="pagination task-history-pagination"' in html
