@@ -27,14 +27,11 @@ class Qwen3AsrEngine(AsrEngine):
         if self._model is not None:
             return self._model
 
-        from env_config import MODEL_SOURCE, validate_local_model
+        from env_config import MODEL_SOURCE
         from pathlib import Path
 
         cache_dir = "./model_cache"
         forced_aligner_name = "Qwen/Qwen3-ForcedAligner-0.6B"
-        validate_local_model(self.model_name)
-        validate_local_model(forced_aligner_name)
-
         def _cached_path(name: str) -> str | None:
             """检查 model_cache 下是否已有缓存，有则返回本地路径，跳过远程检查。"""
             # HF 缓存结构: model_cache/models--{org}--{model}/snapshots/{commit}/

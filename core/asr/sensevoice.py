@@ -63,7 +63,7 @@ class SenseVoiceAsrEngine(AsrEngine):
         if self._pipeline is not None:
             return self._pipeline
 
-        from env_config import MODEL_SOURCE, validate_local_model
+        from env_config import MODEL_SOURCE
         
         # 兼容性处理：HuggingFace 和 ModelScope 命名转换
         if MODEL_SOURCE == "modelscope":
@@ -72,8 +72,6 @@ class SenseVoiceAsrEngine(AsrEngine):
         else:
             if "iic/SenseVoiceSmall" in self.model_name:
                 self.model_name = "FunAudioLLM/SenseVoiceSmall"
-
-        validate_local_model(self.model_name)
 
         cache_dir = "./model_cache"
         from pathlib import Path

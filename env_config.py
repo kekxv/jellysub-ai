@@ -53,24 +53,6 @@ _PUBLISHED_SESSION_SECRETS = frozenset({
     "generate-a-random-secret-with-at-least-32-characters",
 })
 
-_APPROVED_LOCAL_MODELS = frozenset({
-    "Qwen/Qwen3-0.6B",
-    "Qwen/Qwen3-ASR-0.6B",
-    "Qwen/Qwen3-ASR-1.7B",
-    "Qwen/Qwen3-ForcedAligner-0.6B",
-    "iic/SenseVoiceSmall",
-    "FunAudioLLM/SenseVoiceSmall",
-    "Helsinki-NLP/opus-mt-en-zh",
-})
-
-
-def validate_local_model(model_name: str) -> str:
-    """Allow only repositories whose model code and weights are reviewed."""
-    if model_name not in _APPROVED_LOCAL_MODELS:
-        raise ValueError(f"Local model repository is not approved: {model_name}")
-    return model_name
-
-
 def validate_security_config(
     username: str,
     password: str,

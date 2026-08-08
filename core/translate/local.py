@@ -34,10 +34,9 @@ def load_local_model(model_name: str, device: str | None = None):
         _touch_model()
         return _local_model
 
-    from env_config import MODEL_SOURCE, validate_local_model
+    from env_config import MODEL_SOURCE
     from pathlib import Path
 
-    validate_local_model(model_name)
     cache_dir = "./model_cache"
 
     def _cached_path(name: str) -> str | None:
