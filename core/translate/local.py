@@ -34,9 +34,10 @@ def load_local_model(model_name: str, device: str | None = None):
         _touch_model()
         return _local_model
 
-    from env_config import MODEL_SOURCE
+    from env_config import MODEL_SOURCE, validate_local_model
     from pathlib import Path
 
+    validate_local_model(model_name)
     cache_dir = "./model_cache"
 
     def _cached_path(name: str) -> str | None:
@@ -79,12 +80,12 @@ def load_local_model(model_name: str, device: str | None = None):
             device = "cpu"
 
     logger.info("Loading translation model %s on %s", model_name, device)
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=False)
     dtype = torch.bfloat16 if device == "cuda" else torch.float16
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=dtype,
-        trust_remote_code=True,
+        trust_remote_code=False,
     ).to(device)
     _local_model = {
         "tokenizer": tokenizer,

@@ -32,6 +32,7 @@ from env_config import (
     SESSION_HTTPS_ONLY,
     DEVELOPMENT_MODE,
     CORS_ORIGINS,
+    MODEL_PRELOAD_ENABLED,
     validate_security_config,
 )
 
@@ -329,8 +330,9 @@ async def api_save_config(body: ConfigResponse, request: Request):
     _require_auth(request)
     cfg = AppConfig(**body.model_dump())
     save_config(cfg)
-    # 在后台线程加载模型，不阻塞 HTTP 响应
-    threading.Thread(target=_preload_models, args=(cfg,), daemon=True).start()
+    # 可由测试和受限部署关闭，避免配置保存触发模型下载。
+    if MODEL_PRELOAD_ENABLED:
+        threading.Thread(target=_preload_models, args=(cfg,), daemon=True).start()
     return {"status": "saved"}
 
 

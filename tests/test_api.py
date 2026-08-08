@@ -8,7 +8,7 @@ import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -161,6 +161,18 @@ def test_put_config():
     resp = client.put("/api/config", json=new_cfg)
     assert resp.status_code == 200
     assert resp.json() == {"status": "saved"}
+
+
+def test_put_config_does_not_preload_models_when_disabled(client, monkeypatch):
+    """Tests and constrained deployments can save config without downloading a model."""
+    monkeypatch.setattr("main.MODEL_PRELOAD_ENABLED", False)
+    preload = MagicMock()
+    monkeypatch.setattr("main._preload_models", preload)
+    _authenticated_client(client)
+    cfg = AppConfig().model_dump()
+    response = client.put("/api/config", json=cfg)
+    assert response.status_code == 200
+    preload.assert_not_called()
 
 
 def _signed_webhook(client: TestClient, payload: dict, signature_body: bytes | None = None):

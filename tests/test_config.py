@@ -39,6 +39,15 @@ def test_save_and_load_config(tmp_path):
     assert data["path_mappings"] == {"/media": "/mnt/data"}
 
 
+def test_save_config_replaces_file_atomically(tmp_path):
+    """A crash cannot leave a partially written configuration file behind."""
+    config_file = tmp_path / "config.json"
+    with patch("config._CONFIG_PATH", config_file), patch("config.os.replace") as replace:
+        save_config(AppConfig(jellyfin_url="http://atomic:8096"))
+    replace.assert_called_once()
+    assert replace.call_args.args[1] == config_file
+
+
 def test_load_config_missing_file():
     """缺失配置文件时应返回默认配置。"""
     with tempfile.TemporaryDirectory() as tmpdir:

@@ -34,6 +34,7 @@ WEBHOOK_SECRET: str = os.getenv("WEBHOOK_SECRET", "")
 # --- 模型下载源 ---
 # "huggingface" | "modelscope" | "" (默认 huggingface)
 MODEL_SOURCE: str = os.getenv("MODEL_SOURCE", "")
+MODEL_PRELOAD_ENABLED: bool = os.getenv("MODEL_PRELOAD_ENABLED", "true").lower() in {"1", "true", "yes"}
 
 
 _PUBLISHED_ADMIN_USERNAMES = frozenset({
@@ -51,6 +52,23 @@ _PUBLISHED_SESSION_SECRETS = frozenset({
     "replace-with-a-random-32-character-minimum-secret",
     "generate-a-random-secret-with-at-least-32-characters",
 })
+
+_APPROVED_LOCAL_MODELS = frozenset({
+    "Qwen/Qwen3-0.6B",
+    "Qwen/Qwen3-ASR-0.6B",
+    "Qwen/Qwen3-ASR-1.7B",
+    "Qwen/Qwen3-ForcedAligner-0.6B",
+    "iic/SenseVoiceSmall",
+    "FunAudioLLM/SenseVoiceSmall",
+    "Helsinki-NLP/opus-mt-en-zh",
+})
+
+
+def validate_local_model(model_name: str) -> str:
+    """Allow only repositories whose model code and weights are reviewed."""
+    if model_name not in _APPROVED_LOCAL_MODELS:
+        raise ValueError(f"Local model repository is not approved: {model_name}")
+    return model_name
 
 
 def validate_security_config(
