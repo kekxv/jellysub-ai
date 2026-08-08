@@ -1,7 +1,11 @@
 """Security configuration validation tests."""
 
+import importlib
+import logging
+
 import pytest
 
+import env_config
 from env_config import parse_cors_origins, validate_security_config
 
 
@@ -59,6 +63,39 @@ def test_validate_security_config_allows_missing_totp_with_development_override(
         totp_secret="",
         development_mode=True,
     )
+
+
+def test_validate_security_config_allows_local_defaults_with_development_override():
+    """Explicit development mode must permit an empty local security setup."""
+    validate_security_config(
+        "admin",
+        "admin",
+        "",
+        totp_secret="",
+        development_mode=True,
+    )
+
+
+def test_development_mode_omits_production_security_warnings(monkeypatch, caplog):
+    """Intentional local defaults must not be reported as production risks."""
+    with monkeypatch.context() as environment:
+        environment.setenv("DEVELOPMENT_MODE", "true")
+        environment.setenv("ADMIN_USERNAME", "admin")
+        environment.setenv("ADMIN_PASSWORD", "admin")
+        environment.setenv("TOTP_SECRET", "")
+        environment.setenv("SESSION_SECRET", "")
+        caplog.set_level(logging.WARNING, logger="uvicorn.error")
+        caplog.clear()
+        importlib.reload(env_config)
+
+        messages = [record.getMessage() for record in caplog.records]
+        assert not any(
+            marker in message
+            for message in messages
+            for marker in ("默认管理员凭据", "TOTP", "SESSION_SECRET")
+        )
+
+    importlib.reload(env_config)
 
 
 def test_parse_cors_origins_returns_only_explicit_origins():

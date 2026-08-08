@@ -80,6 +80,8 @@ def validate_security_config(
     development_mode: bool = DEVELOPMENT_MODE,
 ) -> None:
     """Reject credentials and session keys that are unsafe for a running service."""
+    if development_mode:
+        return
     if (
         not username
         or not password
@@ -110,17 +112,15 @@ except ValueError:
 # --- 启动检查 ---
 _warnings: list[str] = []
 
-if ADMIN_USERNAME == "admin" and ADMIN_PASSWORD == "admin":
-    _warnings.append("使用默认管理员凭据 (admin/admin)。请通过环境变量 ADMIN_USERNAME/ADMIN_PASSWORD 修改。")
+if not DEVELOPMENT_MODE:
+    if ADMIN_USERNAME == "admin" and ADMIN_PASSWORD == "admin":
+        _warnings.append("使用默认管理员凭据 (admin/admin)。请通过环境变量 ADMIN_USERNAME/ADMIN_PASSWORD 修改。")
 
-if not TOTP_SECRET:
-    if DEVELOPMENT_MODE:
-        _warnings.append("开发模式未设置 TOTP_SECRET，TOTP 验证将被跳过。")
-    else:
+    if not TOTP_SECRET:
         _warnings.append("未设置 TOTP_SECRET，生产启动将被拒绝。建议使用 pyotp.random_base32() 生成。")
 
-if not SESSION_SECRET:
-    _warnings.append("未设置 SESSION_SECRET，session 安全性较低。建议设置为一个随机字符串。")
+    if not SESSION_SECRET:
+        _warnings.append("未设置 SESSION_SECRET，session 安全性较低。建议设置为一个随机字符串。")
 
 if not WEBHOOK_SECRET:
     logger.info("未设置 WEBHOOK_SECRET，Webhook 端点已禁用。")
