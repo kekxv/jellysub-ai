@@ -65,16 +65,16 @@
         <!-- Videos Section (full width) -->
         <section class="dash-section">
             <div class="section-header">
-                <h2 class="section-title" style="margin-bottom: 0;">🎥 本地视频</h2>
+                <div><p class="eyebrow">媒体库</p><h2 class="section-title video-library-title">本地视频</h2></div>
                 <div class="section-header-actions">
-                    <button class="section-refresh" onclick="scanVideos()" title="刷新列表">&#8635;</button>
+                    <button class="section-refresh" onclick="scanVideos()" title="刷新媒体库" aria-label="刷新媒体库">&#8635;</button>
                     <button class="btn btn-primary" id="batch-gen-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="promptBatchGen()">批量生成字幕</button>
                 </div>
             </div>
 
-            <!-- Search -->
-            <div class="video-search-bar">
-                <input type="text" id="video-search-input" placeholder="搜索文件名或路径..." oninput="onVideoSearch()">
+            <div class="video-library-toolbar">
+                <label class="video-search-bar"><span class="sr-only">搜索视频</span><span aria-hidden="true">⌕</span><input type="text" id="video-search-input" placeholder="搜索文件名或路径..." oninput="onVideoSearch()"></label>
+                <div class="video-library-count" aria-live="polite"><strong id="video-library-count">正在加载</strong><span id="video-library-count-detail">媒体库</span></div>
             </div>
 
             <!-- Breadcrumb -->
@@ -86,7 +86,7 @@
                     <thead>
                         <tr>
                             <th class="col-cb"><input type="checkbox" id="file-list-select-all" onchange="toggleAllVideos(this.checked)"></th>
-                            <th class="col-name">文件名</th>
+                            <th class="col-name">媒体文件</th>
                             <th class="col-size">大小</th>
                             <th class="col-status">状态</th>
                             <th class="col-actions">操作</th>
@@ -574,6 +574,7 @@
         let allVideos = [];
         let currentDirPath = '';
         let currentBreadcrumbList = [];
+        const VIDEO_PATH_HASH_PREFIX = '#videos=';
 
         function openTaskDrawer() {
             document.getElementById('task-drawer-overlay').style.display = 'block';
@@ -626,6 +627,35 @@
                 currentVideoDirs = data.dirs || [];
                 renderVideoPage();
             } catch (e) {}
+        }
+
+        function normalizeVideoPath(relativePath) {
+            if (typeof relativePath !== 'string') return '';
+            return relativePath.split('/').filter(part => part && part !== '.' && part !== '..').join('/');
+        }
+        function videoPathFromHash() {
+            if (!window.location.hash.startsWith(VIDEO_PATH_HASH_PREFIX)) return '';
+            try {
+                return normalizeVideoPath(decodeURIComponent(window.location.hash.slice(VIDEO_PATH_HASH_PREFIX.length)));
+            } catch (_) {
+                return '';
+            }
+        }
+        function syncVideoPathHash(relativePath) {
+            const nextHash = relativePath ? `${VIDEO_PATH_HASH_PREFIX}${encodeURIComponent(relativePath)}` : '';
+            if (window.location.hash !== nextHash) window.location.hash = nextHash;
+        }
+        function setVideoDirectory(relativePath) {
+            currentDirPath = normalizeVideoPath(relativePath);
+            currentBreadcrumbList = currentDirPath ? currentDirPath.split('/') : [];
+            document.getElementById('file-list-select-all').checked = false;
+            selectedVideos.clear();
+        }
+        function restoreVideoPathFromHash() {
+            const hashPath = videoPathFromHash();
+            if (hashPath === currentDirPath) return;
+            setVideoDirectory(hashPath);
+            renderVideoPage();
         }
 
         function getFilteredVideos() {
@@ -728,11 +758,9 @@
         }
 
         function navigateTo(relativePath) {
-            currentDirPath = relativePath;
-            currentBreadcrumbList = relativePath ? relativePath.split('/') : [];
-            document.getElementById('file-list-select-all').checked = false;
-            selectedVideos.clear();
+            setVideoDirectory(relativePath);
             renderVideoPage();
+            syncVideoPathHash(currentDirPath);
         }
 
         function escHtml(value) {
@@ -765,7 +793,8 @@
             const listBody = document.getElementById('file-list-body');
             const empty = document.getElementById('video-empty');
             const batchBtn = document.getElementById('batch-gen-btn');
-            const pagin = document.getElementById('video-pagination');
+            const libraryCount = document.getElementById('video-library-count');
+            const libraryCountDetail = document.getElementById('video-library-count-detail');
             document.getElementById('file-list-select-all').checked = false;
             selectedVideos.clear();
             batchBtn.style.display = 'none';
@@ -773,6 +802,8 @@
             renderBreadcrumb();
 
             const totalItems = tree.subdirs.length + tree.files.length;
+            libraryCount.textContent = `${totalItems} 个项目`;
+            libraryCountDetail.textContent = `${tree.subdirs.length} 个目录 · ${tree.files.length} 个视频`;
             if (!totalItems) {
                 listContainer.style.display = 'none';
                 empty.style.display = 'block';
@@ -788,12 +819,12 @@
                 const dirPath = currentDirPath ? currentDirPath + '/' + dir : dir;
                 const escapedPath = escapeInlineHandler(dirPath);
                 const escapedName = escHtml(dir);
-                html += `<tr class="dir-row" onclick="navigateTo('${escapedPath}')">
+                html += `<tr class="dir-row video-directory-row" onclick="navigateTo('${escapedPath}')">
                     <td class="col-cb"></td>
-                    <td class="col-name"><div class="file-name"><span class="file-icon">📁</span>${escapedName}</div></td>
-                    <td class="col-size"><span style="color:var(--text-muted);">--</span></td>
-                    <td class="col-status"></td>
-                    <td class="col-actions"><button class="dir-action-arrow" onclick="event.stopPropagation();navigateTo('${escapedPath}')" title="进入">&rarr;</button></td>
+                    <td class="col-name"><div class="file-name file-name-directory"><span class="file-icon">📁</span><span class="file-name-content"><strong>${escapedName}</strong><small>目录 · 点击进入</small></span></div></td>
+                    <td class="col-size"><span class="directory-size-label">文件夹</span></td>
+                    <td class="col-status"><span class="directory-status">浏览目录</span></td>
+                    <td class="col-actions"><button class="dir-action-arrow" onclick="event.stopPropagation();navigateTo('${escapedPath}')" title="进入目录" aria-label="进入 ${escapedName}">打开 <span aria-hidden="true">→</span></button></td>
                 </tr>`;
             }
 
@@ -805,9 +836,9 @@
                 const handlerPath = escapeInlineHandler(v.path);
                 const handlerName = escapeInlineHandler(v.name);
                 const sizeMb = (v.size / (1024 * 1024)).toFixed(1);
-                html += `<tr>
+                html += `<tr class="video-media-row">
                     <td class="col-cb"><input type="checkbox" data-video-path="${safePath}" onchange="onVideoSelect(this)"></td>
-                    <td class="col-name"><div class="file-name" title="${escHtml(v.name)}"><span class="file-icon">🎬</span>${escHtml(v.name)}</div></td>
+                    <td class="col-name"><div class="file-name" title="${escHtml(v.name)}"><span class="file-icon">🎬</span><span class="file-name-content"><strong>${escHtml(v.name)}</strong><small>${v.processing ? '正在处理中，状态会自动更新' : (v.has_subtitle ? '字幕已就绪' : '尚未生成字幕')}</small></span></div></td>
                     <td class="col-size"><span class="file-col-size">${sizeMb} MB</span></td>
                     <td class="col-status"><span class="file-col-status"><span class="badge ${sCls}">${sTxt}</span></span></td>
                     <td class="col-actions">
@@ -1143,6 +1174,8 @@
 
         // --- Init ---
         loadConfig();
+        window.addEventListener('hashchange', restoreVideoPathFromHash);
+        restoreVideoPathFromHash();
         scanVideos();
         refreshOperationalOverview();
         setInterval(refreshOperationalOverview, 5000);
