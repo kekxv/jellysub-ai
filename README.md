@@ -266,6 +266,7 @@ docker run -d -p 8000:8000 \
   -e ADMIN_PASSWORD \
   -e SESSION_SECRET \
   -e SESSION_HTTPS_ONLY=true \
+  -e HOME=/data \
   -e MODEL_SOURCE="modelscope" \
   -v jellysub-data:/data \
   --name jellysub jellysub-ai
@@ -288,6 +289,9 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
       SESSION_HTTPS_ONLY: "true"
+      # ModelScope 会在 $HOME/.modelscope 保存会话信息；镜像中的 app
+      # 用户没有 /home/app，因此必须指向可写的持久化目录。
+      HOME: /data
       MODEL_SOURCE: modelscope
       MODEL_IDLE_TIMEOUT: "300"
     volumes:
@@ -297,3 +301,50 @@ services:
 volumes:
   jellysub-data:
 ```
+
+### 使用宿主机目录、ModelScope 与 PVE CT
+
+建议把运行时文件作为**整个目录**挂载到 `/data`，而不是分别挂载
+`config.json` 或 `tasks.db`：配置保存采用原子替换，Docker 的单文件 bind
+mount 无法被替换，会导致保存配置时报 `Device or resource busy`。SQLite
+也需要在数据库所在目录创建 WAL/journal 文件。
+
+```yaml
+services:
+  jellysub:
+    environment:
+      HOME: /data
+      MODEL_SOURCE: modelscope
+    volumes:
+      - ./data/jellysub:/data
+      # 可选：将大模型缓存放到独立磁盘。该目录也必须可写。
+      - /data/movie/jellysub_model_cache:/data/model_cache
+      - /data/movie/media:/media
+```
+
+镜像固定以 UID/GID `10001:10001` 运行，`PUID` 和 `PGID` 环境变量不会改变
+这一点。因此 `./data/jellysub`、`jellysub_model_cache` 以及要写入字幕的媒体目录
+都必须允许该 UID 写入。例如普通 Docker 宿主机可执行：
+
+```bash
+sudo chown -R 10001:10001 ./data/jellysub /data/movie/jellysub_model_cache
+```
+
+在 PVE **非特权 CT** 中，容器内 UID 会映射为 PVE 宿主机上的另一个 UID。先在
+PVE 宿主机确认映射：
+
+```bash
+pct exec <CTID> -- cat /proc/self/uid_map
+pct exec <CTID> -- cat /proc/self/gid_map
+```
+
+默认映射 `0 100000 65536` 时，应用 UID/GID `10001:10001` 对应 PVE 宿主机的
+`110001:110001`；需要对 **PVE 宿主机上 bind mount 的实际源目录** 授权：
+
+```bash
+chown -R 110001:110001 /实际的PVE挂载源/jellysub_model_cache
+```
+
+若目录显示为 `nobody:nogroup`，或 ModelScope 提示无法写入
+`model_cache/.lock`，说明映射后的 UID 没有写权限。修正整个模型缓存目录的所有者
+或 ACL 后，再重启服务。
