@@ -65,16 +65,16 @@
         <!-- Videos Section (full width) -->
         <section class="dash-section">
             <div class="section-header">
-                <h2 class="section-title" style="margin-bottom: 0;">🎥 本地视频</h2>
+                <div><p class="eyebrow">媒体库</p><h2 class="section-title video-library-title">本地视频</h2></div>
                 <div class="section-header-actions">
-                    <button class="section-refresh" onclick="scanVideos()" title="刷新列表">&#8635;</button>
+                    <button class="section-refresh" onclick="scanVideos()" title="刷新媒体库" aria-label="刷新媒体库">&#8635;</button>
                     <button class="btn btn-primary" id="batch-gen-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="promptBatchGen()">批量生成字幕</button>
                 </div>
             </div>
 
-            <!-- Search -->
-            <div class="video-search-bar">
-                <input type="text" id="video-search-input" placeholder="搜索文件名或路径..." oninput="onVideoSearch()">
+            <div class="video-library-toolbar">
+                <label class="video-search-bar"><span class="sr-only">搜索视频</span><span aria-hidden="true">⌕</span><input type="text" id="video-search-input" placeholder="搜索文件名或路径..." oninput="onVideoSearch()"></label>
+                <div class="video-library-count" aria-live="polite"><strong id="video-library-count">正在加载</strong><span id="video-library-count-detail">媒体库</span></div>
             </div>
 
             <!-- Breadcrumb -->
@@ -86,7 +86,7 @@
                     <thead>
                         <tr>
                             <th class="col-cb"><input type="checkbox" id="file-list-select-all" onchange="toggleAllVideos(this.checked)"></th>
-                            <th class="col-name">文件名</th>
+                            <th class="col-name">媒体文件</th>
                             <th class="col-size">大小</th>
                             <th class="col-status">状态</th>
                             <th class="col-actions">操作</th>
@@ -106,12 +106,17 @@
     <!-- Task Drawer -->
     <div class="drawer-overlay" id="task-drawer-overlay" style="display: none;" onclick="closeTaskDrawer()"></div>
     <aside class="task-drawer" id="task-drawer">
-        <div class="drawer-header">
-            <h2 style="font-size: 1rem; font-weight: 700;">📜 任务历史</h2>
-            <button class="btn" onclick="closeTaskDrawer()" style="padding: 0.2rem 0.5rem;">&times;</button>
+        <div class="drawer-header task-history-header">
+            <div><p class="drawer-kicker">任务中心</p><h2>任务历史</h2><p class="drawer-subtitle">查看队列进度、结果与需要处理的任务</p></div>
+            <button class="btn task-history-close" onclick="closeTaskDrawer()" aria-label="关闭任务历史">&times;</button>
         </div>
-        <div class="drawer-body">
-            <div id="running-section" style="display: none; margin-bottom: 1rem;">
+        <div class="drawer-body task-history-body">
+            <section class="task-history-summary" aria-live="polite">
+                <div><span class="task-history-summary-label">当前视图</span><strong id="task-history-total">正在加载</strong></div>
+                <p id="task-history-summary-copy">正在整理最近的任务记录…</p>
+            </section>
+
+            <div id="running-section" class="task-running-section" style="display: none;">
                 <div class="running-counter">
                     <div class="running-icon">⏳</div>
                     <div class="running-info">
@@ -122,41 +127,42 @@
                 </div>
             </div>
 
-            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-                <select id="filter-type" onchange="loadTasks()" class="btn" style="flex: 1; padding: 0.35rem;">
+            <div class="task-history-filters">
+                <label class="task-filter-field"><span>任务来源</span><select id="filter-type" onchange="loadTasks()" class="btn">
                     <option value="">全部类型</option>
                     <option value="test">测试</option>
                     <option value="video_subtitle">字幕</option>
                     <option value="webhook">Webhook</option>
-                </select>
+                </select></label>
             </div>
 
-            <div style="display: flex; gap: 0.25rem; margin-bottom: 1rem; overflow-x: auto; padding-bottom: 0.5rem;">
-                <button class="filter-btn active btn" data-status="" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">全部</button>
-                <button class="filter-btn btn" data-status="processing" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">处理中</button>
-                <button class="filter-btn btn" data-status="done" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">已完成</button>
-                <button class="filter-btn btn" data-status="failed" onclick="setFilter(this)" style="font-size: 0.7rem; padding: 0.25rem 0.5rem;">失败</button>
+            <div class="task-status-filters" aria-label="任务状态筛选">
+                <button class="filter-btn active btn" data-status="" onclick="setFilter(this)">全部</button>
+                <button class="filter-btn btn" data-status="processing" onclick="setFilter(this)">处理中</button>
+                <button class="filter-btn btn" data-status="pending" onclick="setFilter(this)">等待中</button>
+                <button class="filter-btn btn" data-status="done" onclick="setFilter(this)">已完成</button>
+                <button class="filter-btn btn" data-status="failed" onclick="setFilter(this)">失败</button>
             </div>
 
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+            <div class="task-history-toolbar">
                 <label class="select-all-label">
                     <input type="checkbox" id="task-select-all" onchange="toggleAllTasks(this.checked)"> 全选
                 </label>
-                <div style="display: flex; gap: 0.4rem;">
-                    <button class="section-refresh" onclick="loadTasks()">&#8635;</button>
-                    <button class="btn btn-danger" id="batch-del-btn" style="display: none; padding: 0.25rem 0.5rem; font-size: 0.7rem;" onclick="batchDeleteTasks()">批量删除</button>
+                <div class="task-history-toolbar-actions">
+                    <button class="section-refresh" onclick="loadTasks()" title="刷新任务历史" aria-label="刷新任务历史">&#8635;</button>
+                    <button class="btn btn-danger task-batch-delete" id="batch-del-btn" style="display: none;" onclick="batchDeleteTasks()">批量删除</button>
                 </div>
             </div>
 
-            <div id="task-grid" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
+            <div id="task-grid" class="task-history-list"></div>
 
-            <div class="empty-state" id="task-empty" style="display: none; padding: 2rem 1rem;">
-                <p>暂无任务记录</p>
+            <div class="empty-state task-history-empty" id="task-empty" style="display: none;">
+                <div class="empty-icon">✦</div><p>暂无匹配的任务记录</p><small>创建字幕任务后，它会出现在这里。</small>
             </div>
 
-            <div class="pagination" id="task-pagination" style="display: none; justify-content: space-between; margin-top: 1.5rem;">
+            <div id="task-pagination" class="pagination task-history-pagination" style="display: none;">
                 <button class="btn" onclick="loadTasks(-7)" id="task-prev">←</button>
-                <span id="task-page-info" style="font-size: 0.75rem;"></span>
+                <span id="task-page-info"></span>
                 <button class="btn" onclick="loadTasks(7)" id="task-next">→</button>
             </div>
         </div>
@@ -568,6 +574,7 @@
         let allVideos = [];
         let currentDirPath = '';
         let currentBreadcrumbList = [];
+        const VIDEO_PATH_HASH_PREFIX = '#videos=';
 
         function openTaskDrawer() {
             document.getElementById('task-drawer-overlay').style.display = 'block';
@@ -620,6 +627,35 @@
                 currentVideoDirs = data.dirs || [];
                 renderVideoPage();
             } catch (e) {}
+        }
+
+        function normalizeVideoPath(relativePath) {
+            if (typeof relativePath !== 'string') return '';
+            return relativePath.split('/').filter(part => part && part !== '.' && part !== '..').join('/');
+        }
+        function videoPathFromHash() {
+            if (!window.location.hash.startsWith(VIDEO_PATH_HASH_PREFIX)) return '';
+            try {
+                return normalizeVideoPath(decodeURIComponent(window.location.hash.slice(VIDEO_PATH_HASH_PREFIX.length)));
+            } catch (_) {
+                return '';
+            }
+        }
+        function syncVideoPathHash(relativePath) {
+            const nextHash = relativePath ? `${VIDEO_PATH_HASH_PREFIX}${encodeURIComponent(relativePath)}` : '';
+            if (window.location.hash !== nextHash) window.location.hash = nextHash;
+        }
+        function setVideoDirectory(relativePath) {
+            currentDirPath = normalizeVideoPath(relativePath);
+            currentBreadcrumbList = currentDirPath ? currentDirPath.split('/') : [];
+            document.getElementById('file-list-select-all').checked = false;
+            selectedVideos.clear();
+        }
+        function restoreVideoPathFromHash() {
+            const hashPath = videoPathFromHash();
+            if (hashPath === currentDirPath) return;
+            setVideoDirectory(hashPath);
+            renderVideoPage();
         }
 
         function getFilteredVideos() {
@@ -722,11 +758,9 @@
         }
 
         function navigateTo(relativePath) {
-            currentDirPath = relativePath;
-            currentBreadcrumbList = relativePath ? relativePath.split('/') : [];
-            document.getElementById('file-list-select-all').checked = false;
-            selectedVideos.clear();
+            setVideoDirectory(relativePath);
             renderVideoPage();
+            syncVideoPathHash(currentDirPath);
         }
 
         function escHtml(value) {
@@ -759,7 +793,8 @@
             const listBody = document.getElementById('file-list-body');
             const empty = document.getElementById('video-empty');
             const batchBtn = document.getElementById('batch-gen-btn');
-            const pagin = document.getElementById('video-pagination');
+            const libraryCount = document.getElementById('video-library-count');
+            const libraryCountDetail = document.getElementById('video-library-count-detail');
             document.getElementById('file-list-select-all').checked = false;
             selectedVideos.clear();
             batchBtn.style.display = 'none';
@@ -767,6 +802,8 @@
             renderBreadcrumb();
 
             const totalItems = tree.subdirs.length + tree.files.length;
+            libraryCount.textContent = `${totalItems} 个项目`;
+            libraryCountDetail.textContent = `${tree.subdirs.length} 个目录 · ${tree.files.length} 个视频`;
             if (!totalItems) {
                 listContainer.style.display = 'none';
                 empty.style.display = 'block';
@@ -782,12 +819,12 @@
                 const dirPath = currentDirPath ? currentDirPath + '/' + dir : dir;
                 const escapedPath = escapeInlineHandler(dirPath);
                 const escapedName = escHtml(dir);
-                html += `<tr class="dir-row" onclick="navigateTo('${escapedPath}')">
+                html += `<tr class="dir-row video-directory-row" onclick="navigateTo('${escapedPath}')">
                     <td class="col-cb"></td>
-                    <td class="col-name"><div class="file-name"><span class="file-icon">📁</span>${escapedName}</div></td>
-                    <td class="col-size"><span style="color:var(--text-muted);">--</span></td>
-                    <td class="col-status"></td>
-                    <td class="col-actions"><button class="dir-action-arrow" onclick="event.stopPropagation();navigateTo('${escapedPath}')" title="进入">&rarr;</button></td>
+                    <td class="col-name"><div class="file-name file-name-directory"><span class="file-icon">📁</span><span class="file-name-content"><strong>${escapedName}</strong><small>目录 · 点击进入</small></span></div></td>
+                    <td class="col-size"><span class="directory-size-label">文件夹</span></td>
+                    <td class="col-status"><span class="directory-status">浏览目录</span></td>
+                    <td class="col-actions"><button class="dir-action-arrow" onclick="event.stopPropagation();navigateTo('${escapedPath}')" title="进入目录" aria-label="进入 ${escapedName}">打开 <span aria-hidden="true">→</span></button></td>
                 </tr>`;
             }
 
@@ -799,9 +836,9 @@
                 const handlerPath = escapeInlineHandler(v.path);
                 const handlerName = escapeInlineHandler(v.name);
                 const sizeMb = (v.size / (1024 * 1024)).toFixed(1);
-                html += `<tr>
+                html += `<tr class="video-media-row">
                     <td class="col-cb"><input type="checkbox" data-video-path="${safePath}" onchange="onVideoSelect(this)"></td>
-                    <td class="col-name"><div class="file-name" title="${escHtml(v.name)}"><span class="file-icon">🎬</span>${escHtml(v.name)}</div></td>
+                    <td class="col-name"><div class="file-name" title="${escHtml(v.name)}"><span class="file-icon">🎬</span><span class="file-name-content"><strong>${escHtml(v.name)}</strong><small>${v.processing ? '正在处理中，状态会自动更新' : (v.has_subtitle ? '字幕已就绪' : '尚未生成字幕')}</small></span></div></td>
                     <td class="col-size"><span class="file-col-size">${sizeMb} MB</span></td>
                     <td class="col-status"><span class="file-col-status"><span class="badge ${sCls}">${sTxt}</span></span></td>
                     <td class="col-actions">
@@ -887,6 +924,22 @@
         };
 
         function stageLabel(stage) { return STAGE_LABELS[stage] || '准备中'; }
+        function taskStatusInfo(status) {
+            return {
+                processing: { label: '处理中', className: 'processing' },
+                pending: { label: '等待中', className: 'pending' },
+                done: { label: '已完成', className: 'done' },
+                failed: { label: '需要处理', className: 'failed' },
+            }[status] || { label: '未知状态', className: 'pending' };
+        }
+        function pipelineLabel(type) {
+            return { test: '测试任务', video_subtitle: '手动字幕', webhook: 'Webhook' }[type] || '字幕任务';
+        }
+        function formatTaskTime(value) {
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '时间未知';
+            return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+        }
         function taskProgress(task) {
             const value = Number(task.progress);
             return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
@@ -938,6 +991,8 @@
             const empty = document.getElementById('task-empty');
             const runSection = document.getElementById('running-section');
             const batchDelBtn = document.getElementById('batch-del-btn');
+            const historyTotal = document.getElementById('task-history-total');
+            const historySummary = document.getElementById('task-history-summary-copy');
             document.getElementById('task-select-all').checked = false;
             selectedTasks.clear();
             batchDelBtn.style.display = 'none';
@@ -953,30 +1008,32 @@
                 runSection.style.display = 'none';
             }
 
+            historyTotal.textContent = total ? `${total} 条任务记录` : '暂无任务';
+            historySummary.textContent = runningCount ? `本页有 ${runningCount} 个任务仍在运行，进度会自动更新。` : (total ? '按状态筛选，快速查看成功结果与需要重试的任务。' : '生成字幕后，可以在这里追踪每一步。');
+
             if (!tasks.length) { empty.style.display = 'block'; document.getElementById('task-pagination').style.display = 'none'; return; }
             empty.style.display = 'none';
             document.getElementById('task-pagination').style.display = 'flex';
 
             tasks.forEach(t => {
-                const bCls = t.status === 'done' ? 'done' : (t.status === 'failed' ? 'failed' : 'pending');
+                const status = taskStatusInfo(t.status);
                 const progress = taskProgress(t);
-                const card = document.createElement('div');
-                card.className = 'task-card';
-                card.style = 'padding: 0.75rem;';
+                const card = document.createElement('article');
+                card.className = `task-history-row task-history-${status.className}`;
                 card.innerHTML = `
-                    <div class="card-top" style="margin-bottom:0.25rem;">
-                        <label class="task-check" style="display: flex; align-items: center; gap: 0.4rem; flex: 1;">
+                    <div class="task-history-row-head">
+                        <label class="task-check">
                             <input type="checkbox" data-task-id="${t.id}" onchange="onTaskSelect(this)">
-                            <span class="card-title" style="font-size:0.8rem;">${escHtml(t.item_name || '任务')}</span>
+                            <span class="task-history-title-block"><strong>${escHtml(t.item_name || '任务')}</strong><span class="task-history-path">${escHtml(t.video_path || '没有关联的本地媒体路径')}</span></span>
                         </label>
-                        <span class="badge ${bCls}" style="font-size:0.6rem;">${escHtml(t.status)}</span>
+                        <span class="task-status-label ${status.className}">${status.label}</span>
                     </div>
-                    <div class="task-card-meta">${escHtml(t.pipeline_type)} · ${escHtml(stageLabel(t.stage))} · ${escHtml(t.created_at)}</div>
-                    <div class="task-card-progress"><div class="progress-bar"><span style="width:${progress}%"></span></div><span>${progress}%</span></div>
-                    ${t.status === 'failed' && t.error_message ? `<p class="task-card-error">${escHtml(t.error_message)}</p>` : ''}
-                    <div class="card-actions">
-                        ${t.status === 'failed' ? `<button class="btn" style="padding:0.2rem 0.4rem;font-size:0.65rem" onclick="retryTask(${t.id})">重试</button>` : ''}
-                        <button class="btn btn-danger" style="padding:0.2rem 0.4rem;font-size:0.65rem" onclick="deleteTask(${t.id})">删除</button>
+                    <div class="task-history-meta"><span class="task-type-tag">${escHtml(pipelineLabel(t.pipeline_type))}</span><span>${escHtml(stageLabel(t.stage))}</span><time>${escHtml(formatTaskTime(t.created_at))}</time></div>
+                    <div class="task-history-progress"><div class="progress-bar"><span style="width:${progress}%"></span></div><strong>${progress}%</strong></div>
+                    ${t.status === 'failed' && t.error_message ? `<p class="task-history-error"><span>失败原因</span>${escHtml(t.error_message)}</p>` : ''}
+                    <div class="task-history-actions">
+                        ${t.status === 'failed' ? `<button class="btn task-action-retry" onclick="retryTask(${t.id})">重新尝试</button>` : ''}
+                        <button class="btn btn-danger task-action-delete" onclick="deleteTask(${t.id})">删除</button>
                     </div>`;
                 grid.appendChild(card);
             });
@@ -1117,6 +1174,8 @@
 
         // --- Init ---
         loadConfig();
+        window.addEventListener('hashchange', restoreVideoPathFromHash);
+        restoreVideoPathFromHash();
         scanVideos();
         refreshOperationalOverview();
         setInterval(refreshOperationalOverview, 5000);
