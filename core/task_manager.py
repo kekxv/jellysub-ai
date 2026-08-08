@@ -395,22 +395,31 @@ class TaskManager:
             created.append(task_id)
         return created, skipped
 
-    def retry_task(self, task_id: int):
-        """Reset a failed task to pending for manual retry."""
+    def retry_task(self, task_id: int) -> str:
+        """Reset a failed task to pending, unless its video already has an active task."""
         with self._lock:
             conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                """UPDATE tasks SET
-                    status = 'pending', stage = 'pending',
-                    retry_count = 0, error_message = NULL,
-                    progress = 0, updated_at = CURRENT_TIMESTAMP
-                   WHERE id = ?""",
-                (task_id,),
-            )
-            conn.commit()
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    """UPDATE tasks SET
+                        status = 'pending', stage = 'pending',
+                        retry_count = 0, error_message = NULL,
+                        progress = 0, updated_at = CURRENT_TIMESTAMP
+                       WHERE id = ?""",
+                    (task_id,),
+                )
+                conn.commit()
+            except sqlite3.IntegrityError as exc:
+                conn.rollback()
+                if "UNIQUE constraint failed: tasks.video_path" not in str(exc):
+                    raise
+                logger.info("Task %d retry blocked by an active task for the same video", task_id)
+                return "already_running"
+            finally:
+                conn.close()
         logger.info("Task %d reset for retry", task_id)
+        return "queued"
 
     # ------------------------------------------------------------------ #
     #  Internal update helpers (called from worker thread, safe without lock)

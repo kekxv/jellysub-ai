@@ -286,6 +286,21 @@ def test_tasks_offset_cannot_be_negative(client):
     assert response.status_code == 422
 
 
+def test_retrying_failed_task_with_active_duplicate_returns_conflict(client, tmp_path, monkeypatch):
+    """The retry API reports a same-video active task instead of leaking SQLite errors."""
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    failed_task_id = manager.create_task("/media/movie.mp4")
+    manager._update_task(failed_task_id, status="failed", stage="failed")
+    manager.create_task("/media/movie.mp4")
+    monkeypatch.setattr("main.task_manager", manager)
+    _authenticated_client(client)
+
+    response = client.post(f"/api/tasks/{failed_task_id}/retry")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Task already running for this video"}
+
+
 def test_batch_delete_rejects_more_than_100_task_ids(client):
     """Batch deletion is bounded before it reaches the task manager."""
     _authenticated_client(client)

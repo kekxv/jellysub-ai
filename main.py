@@ -337,9 +337,10 @@ async def api_retry_task(request: Request, task_id: int):
     _require_auth(request)
     task = task_manager.get_task(task_id)
     if not task:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Task not found")
-    task_manager.retry_task(task_id)
+    result = task_manager.retry_task(task_id)
+    if result == "already_running":
+        raise HTTPException(status_code=409, detail="Task already running for this video")
     return {"status": "queued"}
 
 

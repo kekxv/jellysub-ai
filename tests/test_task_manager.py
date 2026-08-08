@@ -21,3 +21,17 @@ def test_active_task_creation_is_atomic_across_manager_instances(tmp_path):
 
     assert sum(task_id is not None for task_id in task_ids) == 1
     assert managers[0].count_tasks(status="pending") == 1
+
+
+def test_retrying_failed_task_with_an_active_task_returns_already_running(tmp_path):
+    """Retry must not reactivate a failed task when its video is already active."""
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    failed_task_id = manager.create_task("/media/movie.mp4")
+    manager._update_task(failed_task_id, status="failed", stage="failed")
+    active_task_id = manager.create_task("/media/movie.mp4")
+
+    result = manager.retry_task(failed_task_id)
+
+    assert result == "already_running"
+    assert manager.get_task(failed_task_id)["status"] == "failed"
+    assert manager.get_task(active_task_id)["status"] == "pending"
