@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -58,9 +59,27 @@ def load_config() -> AppConfig:
 
 def save_config(cfg: AppConfig) -> None:
     global _config
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=_CONFIG_PATH.parent,
+            prefix=f".{_CONFIG_PATH.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            temp_path = f.name
+            json.dump(cfg.model_dump(), f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, _CONFIG_PATH)
+    except Exception:
+        if temp_path:
+            Path(temp_path).unlink(missing_ok=True)
+        raise
     _config = cfg
-    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg.model_dump(), f, indent=2, ensure_ascii=False)
     logger.info("Config saved to %s", _CONFIG_PATH)
 
 

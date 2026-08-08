@@ -41,6 +41,27 @@
             </div>
         </div>
 
+        <section class="operations-overview" id="queue-summary" aria-labelledby="operations-title">
+            <div class="overview-heading">
+                <div>
+                    <p class="eyebrow">字幕工作台</p>
+                    <h1 id="operations-title">今天的处理进度</h1>
+                    <p class="overview-subtitle" id="queue-summary-copy">正在读取队列状态…</p>
+                </div>
+                <button class="btn btn-primary" onclick="openTaskDrawer()">打开任务中心 <span aria-hidden="true">→</span></button>
+            </div>
+            <div class="task-stats" aria-label="任务统计">
+                <div class="task-stat stat-processing"><span>处理中</span><strong id="task-stat-processing">0</strong><small id="task-stat-processing-note">暂无活动任务</small></div>
+                <div class="task-stat stat-pending"><span>等待中</span><strong id="task-stat-pending">0</strong><small>将在当前任务后开始</small></div>
+                <div class="task-stat stat-done"><span>已完成</span><strong id="task-stat-done">0</strong><small>最近任务</small></div>
+                <div class="task-stat stat-failed"><span>需处理</span><strong id="task-stat-failed">0</strong><small>失败任务可直接重试</small></div>
+            </div>
+            <div class="active-task-panel">
+                <div class="active-task-panel-head"><div><p class="eyebrow">当前工作</p><h2>进行中的任务</h2></div><span class="live-indicator"><i></i> 自动更新</span></div>
+                <div id="active-task-list" class="active-task-list"><p class="active-task-empty">正在加载活动任务…</p></div>
+            </div>
+        </section>
+
         <!-- Videos Section (full width) -->
         <section class="dash-section">
             <div class="section-header">
@@ -860,6 +881,38 @@
         });
 
         let taskOffset = 0, taskFilterStatus = '';
+        const STAGE_LABELS = {
+            pending: '等待队列', extracting_audio: '提取音频', asr: '语音识别',
+            translating: '翻译字幕', writing_srt: '写入字幕', done: '已完成', failed: '处理失败'
+        };
+
+        function stageLabel(stage) { return STAGE_LABELS[stage] || '准备中'; }
+        function taskProgress(task) {
+            const value = Number(task.progress);
+            return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+        }
+        function renderActiveTask(task) {
+            const progress = taskProgress(task);
+            return `<article class="active-task-row">
+                <div class="active-task-main"><div class="active-task-title">${escHtml(task.item_name || task.video_path || '字幕任务')}</div>
+                <div class="active-task-meta">${escHtml(stageLabel(task.stage))} · ${progress}%</div></div>
+                <div class="progress-wrap"><div class="progress-bar"><span style="width:${progress}%"></span></div><strong>${progress}%</strong></div>
+            </article>`;
+        }
+        function renderOperationalOverview(tasks, total) {
+            const counts = { processing: 0, pending: 0, done: 0, failed: 0 };
+            tasks.forEach(task => { if (Object.hasOwn(counts, task.status)) counts[task.status]++; });
+            Object.entries(counts).forEach(([status, count]) => {
+                const el = document.getElementById(`task-stat-${status}`); if (el) el.textContent = count;
+            });
+            document.getElementById('task-stat-processing-note').textContent = counts.processing ? '正在处理媒体和字幕' : '暂无活动任务';
+            document.getElementById('queue-summary-copy').textContent = total ? `队列中共有 ${total} 个任务；重点关注正在处理和需重试的项目。` : '还没有任务。选择视频后即可开始生成字幕。';
+            const active = tasks.filter(t => t.status === 'processing' || t.status === 'pending');
+            document.getElementById('active-task-list').innerHTML = active.length ? active.map(renderActiveTask).join('') : '<p class="active-task-empty">队列空闲，可以从下方视频库开始新的字幕任务。</p>';
+        }
+        async function refreshOperationalOverview() {
+            try { const resp = await fetch('/api/tasks?limit=100'); if (!resp.ok) return; const data = await resp.json(); renderOperationalOverview(data.tasks || [], data.total || 0); } catch (_) {}
+        }
         function setFilter(btn) {
             document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active', 'btn-primary'));
             btn.classList.add('active', 'btn-primary');
@@ -877,6 +930,7 @@
             const resp = await fetch(`/api/tasks?${params}`);
             const data = await resp.json();
             renderTasks(data.tasks || [], data.total || 0);
+            if (taskOffset === 0 && !taskFilterStatus && !type) renderOperationalOverview(data.tasks || [], data.total || 0);
         }
 
         function renderTasks(tasks, total) {
@@ -905,6 +959,7 @@
 
             tasks.forEach(t => {
                 const bCls = t.status === 'done' ? 'done' : (t.status === 'failed' ? 'failed' : 'pending');
+                const progress = taskProgress(t);
                 const card = document.createElement('div');
                 card.className = 'task-card';
                 card.style = 'padding: 0.75rem;';
@@ -916,7 +971,9 @@
                         </label>
                         <span class="badge ${bCls}" style="font-size:0.6rem;">${escHtml(t.status)}</span>
                     </div>
-                    <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 0.5rem;">${escHtml(t.pipeline_type)} &middot; ${escHtml(t.stage)} &middot; ${escHtml(t.created_at)}</div>
+                    <div class="task-card-meta">${escHtml(t.pipeline_type)} · ${escHtml(stageLabel(t.stage))} · ${escHtml(t.created_at)}</div>
+                    <div class="task-card-progress"><div class="progress-bar"><span style="width:${progress}%"></span></div><span>${progress}%</span></div>
+                    ${t.status === 'failed' && t.error_message ? `<p class="task-card-error">${escHtml(t.error_message)}</p>` : ''}
                     <div class="card-actions">
                         ${t.status === 'failed' ? `<button class="btn" style="padding:0.2rem 0.4rem;font-size:0.65rem" onclick="retryTask(${t.id})">重试</button>` : ''}
                         <button class="btn btn-danger" style="padding:0.2rem 0.4rem;font-size:0.65rem" onclick="deleteTask(${t.id})">删除</button>
@@ -1061,6 +1118,8 @@
         // --- Init ---
         loadConfig();
         scanVideos();
+        refreshOperationalOverview();
+        setInterval(refreshOperationalOverview, 5000);
     </script>
 </body>
 </html>

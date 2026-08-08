@@ -34,3 +34,19 @@ def test_admin_inline_handlers_escape_paths_and_names():
     assert ".replace(/\\\\/g, '\\\\\\\\')" in html
     assert r"replace(/\u2028/g" in html
     assert r"'\\u2028'" in html
+
+
+def test_admin_has_task_first_operational_overview():
+    html = _admin_html()
+
+    assert 'id="queue-summary"' in html
+    assert 'id="active-task-list"' in html
+    assert 'id="task-stat-processing"' in html
+
+
+def test_admin_renders_task_stage_progress_and_refreshes_active_work():
+    html = _admin_html()
+
+    assert "function stageLabel(stage)" in html
+    assert 'class="progress-bar"' in html
+    assert "setInterval(refreshOperationalOverview, 5000)" in html
