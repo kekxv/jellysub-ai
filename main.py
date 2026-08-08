@@ -10,12 +10,12 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
 
 import pyotp
 
@@ -28,6 +28,8 @@ from env_config import (
     TOTP_SECRET,
     WEBHOOK_SECRET,
     SESSION_SECRET,
+    SESSION_HTTPS_ONLY,
+    validate_security_config,
 )
 
 logging.basicConfig(
@@ -39,6 +41,7 @@ logger = logging.getLogger("uvicorn.error")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_security_config(ADMIN_USERNAME, ADMIN_PASSWORD, SESSION_SECRET)
     cfg = get_config()
     task_manager.start_worker(preload_hook=lambda: _preload_models(cfg))
     yield
@@ -56,8 +59,12 @@ app.add_middleware(
 )
 
 # Session 中间件
-session_secret = SESSION_SECRET or os.urandom(32).hex()
-app.add_middleware(SessionMiddleware, secret_key=session_secret, max_age=86400)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    max_age=86400,
+    https_only=SESSION_HTTPS_ONLY,
+)
 
 # 挂载静态文件
 static_dir = Path(__file__).parent / "static"
@@ -95,6 +102,14 @@ def check_credentials(username: str, password_hash: str, totp_code: str) -> bool
             return False
         return pyotp.TOTP(TOTP_SECRET).verify(totp_code)
     return True
+
+
+def _verify_webhook_signature(raw_body: bytes, signature: str) -> bool:
+    """Verify the Jellyfin HMAC for the exact request body."""
+    expected = hmac.new(
+        WEBHOOK_SECRET.encode(), raw_body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 
 def _require_auth(request: Request):
@@ -285,8 +300,8 @@ async def api_list_tasks(
     request: Request,
     status: str = None,
     pipeline_type: str = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
 ):
     """列出所有任务，支持分页和过滤。"""
     _require_auth(request)
@@ -322,9 +337,10 @@ async def api_retry_task(request: Request, task_id: int):
     _require_auth(request)
     task = task_manager.get_task(task_id)
     if not task:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Task not found")
-    task_manager.retry_task(task_id)
+    result = task_manager.retry_task(task_id)
+    if result == "already_running":
+        raise HTTPException(status_code=409, detail="Task already running for this video")
     return {"status": "queued"}
 
 
@@ -337,7 +353,7 @@ async def api_delete_task(request: Request, task_id: int):
 
 
 class BatchDeleteRequest(BaseModel):
-    task_ids: list[int] = []
+    task_ids: list[int] = Field(default_factory=list, max_length=100)
 
 
 @app.post("/api/tasks/batch/delete")
@@ -421,13 +437,15 @@ async def api_test_run(request: Request):
     if not test_mp4.exists():
         return {"status": "error", "reason": "en.mp4 not found in assets"}
 
-    task_id = task_manager.create_task(
+    task_id = task_manager.create_task_if_no_active(
         video_path=str(test_mp4),
         item_id="test",
         item_type="test",
         item_name="test",
         pipeline_type="test",
     )
+    if task_id is None:
+        return {"status": "already_running"}
     return {"status": "started", "task_id": task_id}
 
 
@@ -516,7 +534,7 @@ class SubtitleJobRequest(BaseModel):
 
 
 class BatchSubtitleRequest(BaseModel):
-    video_paths: list[str] = []
+    video_paths: list[str] = Field(default_factory=list, max_length=100)
     force: bool = False
     asr_language: str = "auto"
 
@@ -542,11 +560,13 @@ async def api_generate_subtitle(body: SubtitleJobRequest, request: Request):
             logger.info("Manual task detection: subtitle exists (%s), path=%s", reason, video_path)
             return {"status": "exists", "reason": reason}
 
-    task_id = task_manager.create_task(
+    task_id = task_manager.create_task_if_no_active(
         video_path=video_path,
         pipeline_type="video_subtitle",
         asr_language=body.asr_language,
     )
+    if task_id is None:
+        return {"status": "already_running"}
     return {"status": "started", "task_id": task_id}
 
 
@@ -678,14 +698,21 @@ class WebhookPayload(BaseModel):
 
 
 @app.post("/webhook")
-async def webhook(payload: WebhookPayload, request: Request):
+async def webhook(request: Request):
     """接收 Jellyfin Webhook，校验签名后创建字幕任务。"""
-    if WEBHOOK_SECRET:
-        signature = request.headers.get("X-Jellyfin-Signature", "")
-        expected = hashlib.sha256(WEBHOOK_SECRET.encode()).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            logger.warning("Webhook signature mismatch from %s", request.client.host if request.client else "unknown")
-            return {"status": "error", "reason": "invalid signature"}
+    if not WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook secret is not configured")
+
+    raw_body = await request.body()
+    signature = request.headers.get("X-Jellyfin-Signature", "")
+    if not _verify_webhook_signature(raw_body, signature):
+        logger.warning("Webhook signature mismatch from %s", request.client.host if request.client else "unknown")
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    try:
+        payload = WebhookPayload.model_validate_json(raw_body)
+    except ValidationError:
+        raise HTTPException(status_code=422, detail="Invalid webhook payload")
 
     item_id = payload.ItemId or payload.item_id
     item_path = payload.Path or payload.path
@@ -704,7 +731,19 @@ async def webhook(payload: WebhookPayload, request: Request):
 
     # Apply path mapping for local path
     cfg = get_config()
-    local_path = _apply_path_mapping(item_path, cfg.path_mappings)
+    local_path = Path(_apply_path_mapping(item_path, cfg.path_mappings)).resolve()
+    if not any(
+        local_path.is_relative_to(Path(video_dir).resolve())
+        for video_dir in cfg.video_dirs
+    ):
+        raise HTTPException(status_code=403, detail="Mapped path is outside configured video directories")
+    if not local_path.is_file():
+        raise HTTPException(status_code=404, detail="Mapped video file not found")
+    local_path = str(local_path)
+
+    if task_manager.has_active_task(local_path):
+        logger.info("Webhook task already active: %s", local_path)
+        return {"status": "already_running"}
 
     # Check existing subtitle / internal stream before creating task
     media_dir = str(Path(local_path).parent)
@@ -721,13 +760,16 @@ async def webhook(payload: WebhookPayload, request: Request):
         logger.info("Media has internal subtitle stream, skipping")
         return {"status": "skipped", "reason": "internal subtitle"}
 
-    task_manager.create_task(
+    task_id = task_manager.create_task_if_no_active(
         video_path=local_path,
         item_id=item_id,
         item_type=item_type,
         item_name=item_name,
         pipeline_type="webhook",
     )
+    if task_id is None:
+        logger.info("Webhook task became active concurrently: %s", local_path)
+        return {"status": "already_running"}
     return {"status": "accepted", "item": item_name}
 
 

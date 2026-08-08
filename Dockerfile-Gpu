@@ -1,92 +1,64 @@
-# ---- 阶段 1: 构建阶段 ----
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04 AS builder
+FROM ghcr.io/astral-sh/uv:0.11.30 AS uv
+
+FROM nvidia/cuda:12.8.1-runtime-ubuntu24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 安装 Python 3.12 和基础构建工具
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3.12-dev \
-    python3.12-distutils \
-    curl \
     gcc \
     g++ \
     libsox-dev \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=uv /uv /uvx /bin/
 
 WORKDIR /app
 
-# 1. 仅拷贝依赖描述文件
-COPY pyproject.toml uv.lock ./
+COPY docker/gpu/pyproject.toml docker/gpu/uv.lock ./
 
-# 2. 【安装 GPU 版 PyTorch】
-# 这一层包含了最重的 torch, torchvision, torchaudio (约 2GB+)
-# 只要 pyproject.toml 里的 torch 版本不变，这一层永远被 Docker 缓存
-RUN UV_HTTP_TIMEOUT=600 uv pip install --system --no-cache-dir \
-    --index-url https://download.pytorch.org/whl/cu121 \
-    "torch>=2.0" "torchaudio"
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_HTTP_TIMEOUT=600 \
+    UV_LINK_MODE=copy
 
-# 3. 【安装其他业务依赖】
-# 这一步安装 modelscope, qwen-asr, fastapi 等
-# 即使你改了代码，只要没增删库，这一层也是缓存
-RUN UV_HTTP_TIMEOUT=300 uv pip install --system --no-cache-dir \
-    --extra-index-url https://pypi.org/simple \
-    -r pyproject.toml
+RUN uv sync --locked --no-dev --no-install-project --python /usr/bin/python3
 
-# 注意：这里千万不要执行 uv pip install . 否则会把代码混入 site-packages
+FROM nvidia/cuda:12.8.1-runtime-ubuntu24.04 AS runtime
 
-# ---- 阶段 2: 运行阶段 ----
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
-
-# 设置 Python 相关环境变量
-# 【关键】将 /app 加入路径，确保能直接 import core
-ENV PYTHONDONTWRITEBYTECODE=1 \
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8000 \
-    ADMIN_USERNAME=admin \
-    ADMIN_PASSWORD=admin \
-    TOTP_SECRET="" \
-    SESSION_SECRET="change_me_in_production" \
-    WEBHOOK_SECRET="" \
     MODEL_SOURCE="" \
     MODEL_IDLE_TIMEOUT=180 \
     PYTHONPATH=/app \
-    PATH="/usr/local/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    CONFIG_PATH=/data/config.json \
+    TASK_DB_PATH=/data/tasks.db \
+    MODEL_CACHE=/data/model_cache \
+    TEMP_DIR=/data/tmp
 
-WORKDIR /app
-
-# 安装运行时系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 \
     ffmpeg \
-    libsox3 \
     libgl1 \
     libglib2.0-0 \
+    libsox3 \
+    python3 \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -s /usr/bin/python3.12 /usr/bin/python
+    && groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --no-create-home app \
+    && mkdir -p /app /data/model_cache /data/tmp \
+    && chown -R app:app /data
 
-# 4. 【关键：从 builder 拷贝依赖】
-# 这一步拷贝的是已经安装好的几千个依赖文件。
-# 因为前面分了层，如果依赖没变，Docker 会直接跳过这一层的拉取/推送。
-COPY --from=builder /usr/local/lib/python3.12/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /app/.venv /app/.venv
+COPY main.py config.py env_config.py /app/
+COPY core /app/core
+COPY static /app/static
 
-# 5. 【关键：最后拷贝源代码】
-# 以后你修改代码，只有这一步（几百KB）会变，瞬间完成构建和推送。
-COPY . .
-
-# 创建必要目录
-RUN mkdir -p /app/model_cache /app/tmp /app/assets
-
+VOLUME ["/data"]
 EXPOSE 8000
+
+USER app
+WORKDIR /data
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

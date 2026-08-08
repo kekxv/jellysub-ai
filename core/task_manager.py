@@ -66,8 +66,8 @@ def cleanup_all_tmp(tmp_dir: str = "./tmp"):
 class TaskManager:
     """SQLite-backed task queue with single worker thread."""
 
-    def __init__(self, db_path: str = "tasks.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path if db_path is not None else os.environ.get("TASK_DB_PATH", "tasks.db")
         self._lock = threading.Lock()
         self._running = False
         self._worker_thread: threading.Thread | None = None
@@ -112,6 +112,7 @@ class TaskManager:
                     max_retries INTEGER DEFAULT 1,
                     source_segments TEXT,
                     translated_segments TEXT,
+                    asr_language TEXT DEFAULT 'auto',
                     started_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -134,6 +135,30 @@ class TaskManager:
                     cur.execute(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_def}")
                 except sqlite3.OperationalError:
                     pass  # Column already exists
+
+        # Establish one database-level active task per video. Older databases
+        # may contain duplicates created before this invariant existed; retain
+        # the oldest active row and make the extras visible as failed tasks.
+        cur.execute("""
+            UPDATE tasks
+            SET status = 'failed',
+                stage = 'failed',
+                error_message = COALESCE(error_message || '; ', '') ||
+                    'Deactivated while enforcing active-task uniqueness',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE status IN ('pending', 'processing')
+              AND id NOT IN (
+                  SELECT MIN(id)
+                  FROM tasks
+                  WHERE status IN ('pending', 'processing')
+                  GROUP BY video_path
+              )
+        """)
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_one_active_video
+            ON tasks(video_path)
+            WHERE status IN ('pending', 'processing')
+        """)
 
         # Create task_stages table
         cur.execute("""
@@ -166,18 +191,48 @@ class TaskManager:
     ) -> int:
         with self._lock:
             conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                """INSERT INTO tasks
-                   (video_path, item_id, item_type, item_name, pipeline_type, asr_language, status, stage)
-                   VALUES (?, ?, ?, ?, ?, ?, 'pending', 'pending')""",
-                (video_path, item_id, item_type, item_name, pipeline_type, asr_language),
-            )
-            task_id = cur.lastrowid
-            conn.commit()
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO tasks
+                       (video_path, item_id, item_type, item_name, pipeline_type, asr_language, status, stage)
+                       VALUES (?, ?, ?, ?, ?, ?, 'pending', 'pending')""",
+                    (video_path, item_id, item_type, item_name, pipeline_type, asr_language),
+                )
+                task_id = cur.lastrowid
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
         logger.info("Task %d created: %s (%s)", task_id, video_path, pipeline_type)
         return task_id
+
+    def create_task_if_no_active(
+        self,
+        video_path: str,
+        item_id: str = "",
+        item_type: str = "",
+        item_name: str = "",
+        pipeline_type: str = "webhook",
+        asr_language: str = "auto",
+    ) -> int | None:
+        """Atomically create a pending task, or return None when one is active."""
+        try:
+            return self.create_task(
+                video_path=video_path,
+                item_id=item_id,
+                item_type=item_type,
+                item_name=item_name,
+                pipeline_type=pipeline_type,
+                asr_language=asr_language,
+            )
+        except sqlite3.IntegrityError as exc:
+            if "UNIQUE constraint failed: tasks.video_path" not in str(exc):
+                raise
+            logger.info("Task already active: %s", video_path)
+            return None
 
     def get_task(self, task_id: int) -> dict | None:
         conn = self._get_conn()
@@ -241,6 +296,18 @@ class TaskManager:
         row = cur.fetchone()
         conn.close()
         return self._dict_row(row) if row else None
+
+    def has_active_task(self, video_path: str) -> bool:
+        """Return whether a video already has a pending or processing task."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM tasks WHERE video_path = ? AND status IN ('pending', 'processing') LIMIT 1",
+            (video_path,),
+        )
+        active = cur.fetchone() is not None
+        conn.close()
+        return active
 
     def get_latest_by_type(self, pipeline_type: str) -> dict | None:
         conn = self._get_conn()
@@ -317,30 +384,42 @@ class TaskManager:
         created = []
         skipped = 0
         for path in video_paths:
-            existing = self.get_latest_by_video_path(path)
-            if existing and existing["status"] in ("pending", "processing"):
+            task_id = self.create_task_if_no_active(
+                video_path=path,
+                pipeline_type=pipeline_type,
+                asr_language=asr_language,
+            )
+            if task_id is None:
                 skipped += 1
                 continue
-            task_id = self.create_task(video_path=path, pipeline_type=pipeline_type, asr_language=asr_language)
             created.append(task_id)
         return created, skipped
 
-    def retry_task(self, task_id: int):
-        """Reset a failed task to pending for manual retry."""
+    def retry_task(self, task_id: int) -> str:
+        """Reset a failed task to pending, unless its video already has an active task."""
         with self._lock:
             conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                """UPDATE tasks SET
-                    status = 'pending', stage = 'pending',
-                    retry_count = 0, error_message = NULL,
-                    progress = 0, updated_at = CURRENT_TIMESTAMP
-                   WHERE id = ?""",
-                (task_id,),
-            )
-            conn.commit()
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    """UPDATE tasks SET
+                        status = 'pending', stage = 'pending',
+                        retry_count = 0, error_message = NULL,
+                        progress = 0, updated_at = CURRENT_TIMESTAMP
+                       WHERE id = ?""",
+                    (task_id,),
+                )
+                conn.commit()
+            except sqlite3.IntegrityError as exc:
+                conn.rollback()
+                if "UNIQUE constraint failed: tasks.video_path" not in str(exc):
+                    raise
+                logger.info("Task %d retry blocked by an active task for the same video", task_id)
+                return "already_running"
+            finally:
+                conn.close()
         logger.info("Task %d reset for retry", task_id)
+        return "queued"
 
     # ------------------------------------------------------------------ #
     #  Internal update helpers (called from worker thread, safe without lock)

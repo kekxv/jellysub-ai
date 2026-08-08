@@ -466,9 +466,9 @@
             row.className = 'mapping-row';
             row.style = 'display: flex; gap: 0.4rem; align-items: center;';
             row.innerHTML = `
-                <input class="map-from" placeholder="远程" value="${from}" style="flex: 1; font-size: 0.75rem;">
+                <input class="map-from" placeholder="远程" value="${escHtml(from)}" style="flex: 1; font-size: 0.75rem;">
                 <span style="color:var(--text-muted); font-size: 0.8rem;">&rarr;</span>
-                <input class="map-to" placeholder="本地" value="${to}" style="flex: 1; font-size: 0.75rem;">
+                <input class="map-to" placeholder="本地" value="${escHtml(to)}" style="flex: 1; font-size: 0.75rem;">
                 <button type="button" class="btn btn-danger" style="padding: 0.2rem 0.4rem; border-radius: 6px;" onclick="this.parentElement.remove()">&times;</button>
             `;
             container.appendChild(row);
@@ -481,7 +481,7 @@
             dirs.forEach((d, i) => {
                 const item = document.createElement('div');
                 item.style = 'display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; background: #fff; border: 1px solid var(--border); border-radius: 8px; font-size: 0.8rem;';
-                item.innerHTML = `<span>${d}</span><button type="button" class="btn btn-danger" style="padding: 0.1rem 0.35rem;" onclick="removeVideoDir(${i})">&times;</button>`;
+                item.innerHTML = `<span>${escHtml(d)}</span><button type="button" class="btn btn-danger" style="padding: 0.1rem 0.35rem;" onclick="removeVideoDir(${i})">&times;</button>`;
                 list.appendChild(item);
             });
         }
@@ -694,7 +694,7 @@
                 if (isLast) {
                     html += `<span class="breadcrumb-segment active">${escHtml(currentBreadcrumbList[i])}</span>`;
                 } else {
-                    html += `<span class="breadcrumb-segment" onclick="navigateTo('${path.replace(/'/g, "\\'")}')">${escHtml(currentBreadcrumbList[i])}</span>`;
+                    html += `<span class="breadcrumb-segment" onclick="navigateTo('${escapeInlineHandler(path)}')">${escHtml(currentBreadcrumbList[i])}</span>`;
                 }
             }
             el.innerHTML = html;
@@ -708,8 +708,23 @@
             renderVideoPage();
         }
 
-        function escHtml(str) {
-            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        function escHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function escapeInlineHandler(value) {
+            return escHtml(String(value ?? '')
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'")
+                .replace(/\r/g, '\\r')
+                .replace(/\n/g, '\\n')
+                .replace(/\u2028/g, '\\u2028')
+                .replace(/\u2029/g, '\\u2029'));
         }
 
         function onVideoSearch() {
@@ -744,7 +759,7 @@
             // Directory rows (always shown first)
             for (const dir of tree.subdirs) {
                 const dirPath = currentDirPath ? currentDirPath + '/' + dir : dir;
-                const escapedPath = dirPath.replace(/'/g, "\\'");
+                const escapedPath = escapeInlineHandler(dirPath);
                 const escapedName = escHtml(dir);
                 html += `<tr class="dir-row" onclick="navigateTo('${escapedPath}')">
                     <td class="col-cb"></td>
@@ -759,8 +774,9 @@
             for (const v of tree.files) {
                 const sCls = v.processing ? 'pending' : (v.has_subtitle ? 'done' : 'pending');
                 const sTxt = v.processing ? '处理中' : (v.has_subtitle ? '已有字幕' : '待处理');
-                const safePath = v.path.replace(/'/g, "\\'").replace(/"/g, "&quot;");
-                const safeName = v.name.replace(/'/g, "\\'");
+                const safePath = escHtml(v.path);
+                const handlerPath = escapeInlineHandler(v.path);
+                const handlerName = escapeInlineHandler(v.name);
                 const sizeMb = (v.size / (1024 * 1024)).toFixed(1);
                 html += `<tr>
                     <td class="col-cb"><input type="checkbox" data-video-path="${safePath}" onchange="onVideoSelect(this)"></td>
@@ -769,9 +785,9 @@
                     <td class="col-status"><span class="file-col-status"><span class="badge ${sCls}">${sTxt}</span></span></td>
                     <td class="col-actions">
                         <div class="file-col-actions">
-                            <button class="btn" onclick="openPlayer('${safePath}','${safeName}')">播放</button>
-                            <button class="btn btn-primary" onclick="promptGen('${safePath}')">${v.has_subtitle ? '重新生成' : '生成字幕'}</button>
-                            ${v.has_subtitle ? `<button class="btn" onclick="openSubPreview('${safePath}')">字幕</button>` : ''}
+                            <button class="btn" onclick="openPlayer('${handlerPath}','${handlerName}')">播放</button>
+                            <button class="btn btn-primary" onclick="promptGen('${handlerPath}')">${v.has_subtitle ? '重新生成' : '生成字幕'}</button>
+                            ${v.has_subtitle ? `<button class="btn" onclick="openSubPreview('${handlerPath}')">字幕</button>` : ''}
                         </div>
                     </td>
                 </tr>`;
@@ -896,11 +912,11 @@
                     <div class="card-top" style="margin-bottom:0.25rem;">
                         <label class="task-check" style="display: flex; align-items: center; gap: 0.4rem; flex: 1;">
                             <input type="checkbox" data-task-id="${t.id}" onchange="onTaskSelect(this)">
-                            <span class="card-title" style="font-size:0.8rem;">${t.item_name || '任务'}</span>
+                            <span class="card-title" style="font-size:0.8rem;">${escHtml(t.item_name || '任务')}</span>
                         </label>
-                        <span class="badge ${bCls}" style="font-size:0.6rem;">${t.status}</span>
+                        <span class="badge ${bCls}" style="font-size:0.6rem;">${escHtml(t.status)}</span>
                     </div>
-                    <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 0.5rem;">${t.pipeline_type} &middot; ${t.stage} &middot; ${t.created_at}</div>
+                    <div style="font-size: 0.65rem; color: var(--text-muted); margin-bottom: 0.5rem;">${escHtml(t.pipeline_type)} &middot; ${escHtml(t.stage)} &middot; ${escHtml(t.created_at)}</div>
                     <div class="card-actions">
                         ${t.status === 'failed' ? `<button class="btn" style="padding:0.2rem 0.4rem;font-size:0.65rem" onclick="retryTask(${t.id})">重试</button>` : ''}
                         <button class="btn btn-danger" style="padding:0.2rem 0.4rem;font-size:0.65rem" onclick="deleteTask(${t.id})">删除</button>
@@ -1014,18 +1030,18 @@
         function updatePlayerSub() {
             if (playerSubMode === 'none') { document.getElementById('player-subtitle-overlay').innerHTML = ''; return; }
             const ct = document.getElementById('player-video').currentTime;
-            let text = '';
+            let overlayHtml = '';
             if (playerSubMode === 'bilingual') {
                 const s = playerSegs.find(x => ct >= x.start && ct <= x.end);
                 const t = playerTrans.find(x => ct >= x.start && ct <= x.end);
-                if (t) text = t.text + (s ? `<br><small style="font-size: 0.8em; opacity: 0.8;">${s.text}</small>` : '');
-                else if (s) text = s.text;
+                if (t) overlayHtml = escHtml(t.text) + (s ? `<br><small style="font-size: 0.8em; opacity: 0.8;">${escHtml(s.text)}</small>` : '');
+                else if (s) overlayHtml = escHtml(s.text);
             } else {
                 const segs = playerSubMode === 'source' ? playerSegs : playerTrans;
                 const seg = segs.find(x => ct >= x.start && ct <= x.end);
-                if (seg) text = seg.text;
+                if (seg) overlayHtml = escHtml(seg.text);
             }
-            document.getElementById('player-subtitle-overlay').innerHTML = text;
+            document.getElementById('player-subtitle-overlay').innerHTML = overlayHtml;
         }
         function setPlayerSub(mode) {
             playerSubMode = mode;
