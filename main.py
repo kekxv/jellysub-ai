@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -29,6 +30,8 @@ from env_config import (
     WEBHOOK_SECRET,
     SESSION_SECRET,
     SESSION_HTTPS_ONLY,
+    DEVELOPMENT_MODE,
+    CORS_ORIGINS,
     validate_security_config,
 )
 
@@ -41,7 +44,13 @@ logger = logging.getLogger("uvicorn.error")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    validate_security_config(ADMIN_USERNAME, ADMIN_PASSWORD, SESSION_SECRET)
+    validate_security_config(
+        ADMIN_USERNAME,
+        ADMIN_PASSWORD,
+        SESSION_SECRET,
+        totp_secret=TOTP_SECRET,
+        development_mode=DEVELOPMENT_MODE,
+    )
     cfg = get_config()
     task_manager.start_worker(preload_hook=lambda: _preload_models(cfg))
     yield
@@ -53,7 +62,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="JellySub-AI", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(CORS_ORIGINS),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -83,6 +92,11 @@ task_manager = TaskManager()
 
 # --- 认证辅助函数 ---
 
+_LOGIN_FAILURE_LIMIT = 6
+_LOGIN_FAILURE_WINDOW_SECONDS = 300
+_login_failures: dict[tuple[str, str], tuple[int, float]] = {}
+_login_failures_lock = threading.Lock()
+
 def require_auth(request: Request) -> bool:
     return request.session.get("authenticated", False)
 
@@ -102,6 +116,30 @@ def check_credentials(username: str, password_hash: str, totp_code: str) -> bool
             return False
         return pyotp.TOTP(TOTP_SECRET).verify(totp_code)
     return True
+
+
+def _authenticate_login(request: Request, body: "LoginRequest") -> bool | None:
+    """Authenticate a login, returning None when its failure limit is exhausted."""
+    client_address = request.client.host if request.client else "unknown"
+    key = (client_address, body.username)
+    now = time.monotonic()
+
+    with _login_failures_lock:
+        failures = _login_failures.get(key)
+        if failures and now - failures[1] >= _LOGIN_FAILURE_WINDOW_SECONDS:
+            _login_failures.pop(key, None)
+            failures = None
+        if failures and failures[0] >= _LOGIN_FAILURE_LIMIT:
+            return None
+
+        authenticated = check_credentials(body.username, body.password, body.totp_code)
+        if authenticated:
+            _login_failures.pop(key, None)
+            return True
+
+        failure_count = failures[0] + 1 if failures else 1
+        _login_failures[key] = (failure_count, now)
+        return False
 
 
 def _verify_webhook_signature(raw_body: bytes, signature: str) -> bool:
@@ -212,7 +250,10 @@ class LoginRequest(BaseModel):
 
 @app.post("/login")
 async def login(body: LoginRequest, request: Request):
-    if check_credentials(body.username, body.password, body.totp_code):
+    authenticated = _authenticate_login(request, body)
+    if authenticated is None:
+        raise HTTPException(status_code=429, detail="Too many failed login attempts")
+    if authenticated:
         request.session["authenticated"] = True
         return {"status": "ok"}
     return {"status": "error", "detail": "用户名、密码或验证码错误"}

@@ -75,6 +75,37 @@ def test_login_accepts_browser_credential_hash(client):
     assert response.json() == {"status": "ok"}
 
 
+def test_login_returns_rate_limit_after_six_failed_attempts(client):
+    """A seventh login failure from one address and username is rejected with 429."""
+    credentials = {
+        "username": "rate-limit-test-user",
+        "password": "not-the-admin-password-hash",
+        "totp_code": "",
+    }
+
+    for _ in range(6):
+        response = client.post("/login", json=credentials)
+        assert response.status_code == 200
+        assert response.json()["status"] == "error"
+
+    response = client.post("/login", json=credentials)
+
+    assert response.status_code == 429
+
+
+def test_cors_rejects_an_origin_not_explicitly_allowed(client):
+    """Browser preflight requests from arbitrary origins must be denied."""
+    response = client.options(
+        "/login",
+        headers={
+            "Origin": "https://untrusted.example",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 400
+
+
 def test_index_returns_html():
     """GET / 应返回 HTML 页面。"""
     client = TestClient(app, base_url="https://testserver")
