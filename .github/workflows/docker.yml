@@ -21,16 +21,6 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - variant: cpu
-            dockerfile: Dockerfile
-            cuda_assertion: assert torch.version.cuda is None
-          - variant: gpu
-            dockerfile: Dockerfile-Gpu
-            cuda_assertion: assert torch.version.cuda is not None
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,36 +32,24 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: Dockerfile
           load: true
           provenance: false
-          tags: jellysub-ai-smoke:${{ matrix.variant }}
-          cache-from: type=gha,scope=${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
+          tags: jellysub-ai-smoke:cpu
+          cache-from: type=gha,scope=cpu
+          cache-to: type=gha,mode=max,scope=cpu
 
       - name: Import native Torch dependencies
         run: >-
           docker run --rm --entrypoint python
-          jellysub-ai-smoke:${{ matrix.variant }}
+          jellysub-ai-smoke:cpu
           -c "import torch, torchaudio, silero_vad;
-          ${{ matrix.cuda_assertion }};
+          assert torch.version.cuda is None;
           print(torch.__version__, torchaudio.__version__, torch.version.cuda)"
 
   build:
     needs: smoke
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - variant: cpu
-            dockerfile: Dockerfile
-            platforms: linux/amd64,linux/arm64
-            image_suffix: ''
-          - variant: gpu
-            dockerfile: Dockerfile-Gpu
-            platforms: linux/amd64
-            image_suffix: '-gpu'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -93,7 +71,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.image_suffix }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -104,11 +82,11 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: Dockerfile
           push: true
           provenance: false
-          platforms: ${{ matrix.platforms }}
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
+          cache-from: type=gha,scope=cpu
+          cache-to: type=gha,mode=max,scope=cpu
