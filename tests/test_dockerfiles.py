@@ -110,13 +110,16 @@ def test_task_manager_path_defaults_to_tasks_db(monkeypatch, tmp_path):
     assert (tmp_path / "tasks.db").is_file()
 
 
-def test_ci_builds_cpu_and_gpu_images_with_separate_caches():
+def test_ci_builds_and_publishes_only_the_cpu_image():
+    """Optional GPU assets must never make CI build or publish a GPU image."""
     workflow = Path(".github/workflows/docker.yml").read_text(encoding="utf-8")
 
-    assert "dockerfile: Dockerfile\n" in workflow
-    assert "dockerfile: Dockerfile-Gpu\n" in workflow
-    assert "file: ${{ matrix.dockerfile }}" in workflow
-    assert "scope=${{ matrix.variant }}" in workflow
+    assert "file: Dockerfile" in workflow
+    assert "torch.version.cuda is None" in workflow
+    assert "platforms: linux/amd64,linux/arm64" in workflow
+    assert "Dockerfile-Gpu" not in workflow
+    assert "torch.version.cuda is not None" not in workflow
+    assert "image_suffix" not in workflow
 
 
 def _package_registries(lock_path, package_name):
@@ -150,5 +153,4 @@ def test_ci_smoke_tests_native_torch_dependencies_after_build():
 
     assert "import torch, torchaudio, silero_vad" in workflow
     assert "torch.version.cuda is None" in workflow
-    assert "torch.version.cuda is not None" in workflow
     assert "needs: smoke" in workflow
