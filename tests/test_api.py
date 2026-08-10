@@ -365,6 +365,62 @@ def test_batch_subtitle_rejects_more_than_100_video_paths(client):
     assert response.status_code == 422
 
 
+def test_subtitle_generation_rejects_an_unwritable_output_directory(
+    client, reset_config, tmp_path, monkeypatch
+):
+    """A single task must not enter the queue when its SRT destination rejects writes."""
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    video_path = video_dir / "episode.mkv"
+    video_path.touch()
+    reset_config.video_dirs = [str(video_dir)]
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    monkeypatch.setattr("main.task_manager", manager)
+
+    def reject_write(_path, *_args, **_kwargs):
+        raise PermissionError("read-only media directory")
+
+    monkeypatch.setattr(Path, "open", reject_write)
+    _authenticated_client(client)
+
+    response = client.post(
+        "/api/videos/subtitle",
+        json={"video_path": str(video_path), "force": True},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Subtitle output directory is not writable"}
+    assert manager.count_tasks(status="pending") == 0
+
+
+def test_batch_subtitle_generation_rejects_an_unwritable_output_directory(
+    client, reset_config, tmp_path, monkeypatch
+):
+    """A batch must not partially queue when any SRT destination rejects writes."""
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    video_path = video_dir / "episode.mkv"
+    video_path.touch()
+    reset_config.video_dirs = [str(video_dir)]
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    monkeypatch.setattr("main.task_manager", manager)
+
+    def reject_write(_path, *_args, **_kwargs):
+        raise PermissionError("read-only media directory")
+
+    monkeypatch.setattr(Path, "open", reject_write)
+    _authenticated_client(client)
+
+    response = client.post(
+        "/api/videos/subtitle/batch",
+        json={"video_paths": [str(video_path)], "force": True},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Subtitle output directory is not writable"}
+    assert manager.count_tasks(status="pending") == 0
+
+
 
 def test_login_redirect_when_authenticated():
     """已登录用户访问 /login 应重定向到 /admin。"""

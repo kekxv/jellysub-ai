@@ -582,12 +582,32 @@ class BatchSubtitleRequest(BaseModel):
     asr_language: str = "auto"
 
 
+def _ensure_subtitle_output_writable(video_path: str) -> None:
+    """Fail before queuing work when the subtitle destination cannot be written."""
+    output_dir = Path(video_path).parent
+    probe_path = output_dir / f".jellysub-write-test-{os.getpid()}-{time.time_ns()}"
+    try:
+        with probe_path.open("x", encoding="utf-8"):
+            pass
+    except OSError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Subtitle output directory is not writable",
+        ) from exc
+    finally:
+        try:
+            probe_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove subtitle write probe: %s", probe_path)
+
+
 @app.post("/api/videos/subtitle")
 async def api_generate_subtitle(body: SubtitleJobRequest, request: Request):
     """开始生成字幕。"""
     _require_auth(request)
     video_path = body.video_path
     _validate_video_path(video_path)
+    _ensure_subtitle_output_writable(video_path)
 
     # Check if already running
     task = task_manager.get_latest_by_video_path(video_path)
@@ -622,6 +642,7 @@ async def api_batch_generate_subtitle(body: BatchSubtitleRequest, request: Reque
         raise HTTPException(status_code=400, detail="video_paths is required and must not be empty")
     for path in body.video_paths:
         _validate_video_path(path)
+        _ensure_subtitle_output_writable(path)
 
     # 如果不是强制模式，先筛选出已有字幕的路径
     if not body.force:

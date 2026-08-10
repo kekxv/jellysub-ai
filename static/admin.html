@@ -682,21 +682,20 @@
             const subdirs = new Set();
             const files = [];
             const currentParts = currentPath ? currentPath.split('/') : [];
-
-            // Determine effectiveParts: strip monitored dir basename from front if present
-            let effectiveParts = currentParts;
-            if (currentParts.length > 0) {
-                for (const root of rootDirs) {
-                    const rootName = root.replace(/\/+$/, '').split('/').pop();
-                    if (currentParts[0] === rootName) {
-                        effectiveParts = currentParts.slice(1);
-                        break;
-                    }
-                }
-            }
+            const selectedRoot = rootDirs.find(root =>
+                currentParts[0] === root.replace(/\/+$/, '').split('/').pop()
+            );
+            const effectiveParts = selectedRoot ? currentParts.slice(1) : currentParts;
 
             for (const v of videos) {
-                const rel = getRelativePath(v.path, rootDirs);
+                const videoRoot = selectedRoot || rootDirs.find(root => {
+                    const cleanRoot = root.replace(/\/+$/, '');
+                    return v.path.startsWith(cleanRoot + '/');
+                });
+                if (!videoRoot) continue;
+                if (!v.path.startsWith(videoRoot.replace(/\/+$/, '') + '/')) continue;
+
+                const rel = getRelativePath(v.path, [videoRoot]);
                 if (rel === '.') { files.push(v); continue; }
                 const parts = rel.split('/');
 
@@ -861,6 +860,11 @@
                 body: JSON.stringify({ video_path: path, force: force, asr_language: asrLanguage })
             });
             const data = await resp.json();
+
+            if (!resp.ok) {
+                alert(data.detail || '字幕任务启动失败，请检查输出目录权限。');
+                return;
+            }
 
             if (data.status === 'exists') {
                 if (confirm(`检测到已有字幕 (${data.reason})，是否覆盖生成？`)) {
@@ -1074,6 +1078,11 @@
                 body: JSON.stringify({ video_paths: [...selectedVideos], force: force, asr_language: asrLanguage })
             });
             const data = await resp.json();
+
+            if (!resp.ok) {
+                alert(data.detail || '字幕任务启动失败，请检查输出目录权限。');
+                return;
+            }
 
             if (data.status === 'exists') {
                 const count = data.existing.length;

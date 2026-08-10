@@ -1,10 +1,82 @@
 """Regression checks for untrusted values rendered in the admin page."""
 
+import json
+import subprocess
 from pathlib import Path
 
 
 def _admin_html() -> str:
     return Path("static/admin.html").read_text()
+
+
+def _run_admin_tree(videos: list[dict], current_path: str, root_dirs: list[str]) -> dict:
+    """Execute the browser's real directory-tree functions without a browser."""
+    script = """
+const fs = require('fs');
+const vm = require('vm');
+const html = fs.readFileSync(process.argv[1], 'utf8');
+const start = html.indexOf('        function getRelativePath(');
+const end = html.indexOf('        function renderBreadcrumb()', start);
+const context = {};
+vm.runInNewContext(html.slice(start, end), context);
+console.log(JSON.stringify(context.buildDirTree(
+    JSON.parse(process.argv[2]), process.argv[3], JSON.parse(process.argv[4])
+)));
+"""
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            "static/admin.html",
+            json.dumps(videos),
+            current_path,
+            json.dumps(root_dirs),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
+def _run_admin_subtitle_request(function_name: str, response: dict) -> dict:
+    """Run the real single/batch request function with a failing API response."""
+    script = """
+const fs = require('fs');
+const vm = require('vm');
+const html = fs.readFileSync(process.argv[1], 'utf8');
+const functionName = process.argv[2];
+const response = JSON.parse(process.argv[3]);
+const startMarker = functionName === 'batch' ? '        async function batchGenSub(' : '        async function genSub(';
+const endMarker = functionName === 'batch' ? '        function toggleAllTasks(' : '        let pendingGenPath';
+const start = html.indexOf(startMarker);
+const end = html.indexOf(endMarker, start);
+const source = html.slice(start, end);
+const messages = [];
+let refreshes = 0;
+const context = {
+    selectedVideos: new Set(['/media/episode.mkv']),
+    fetch: async () => ({ ok: false, json: async () => response }),
+    alert: message => messages.push(message),
+    scanVideos: async () => { refreshes += 1; },
+    loadTasks: () => { refreshes += 1; },
+};
+vm.runInNewContext(source, context);
+const run = functionName === 'batch'
+    ? context.batchGenSub(false, 'auto')
+    : context.genSub('/media/episode.mkv', false, 'auto');
+Promise.resolve(run).then(() => {
+    console.log(JSON.stringify({ messages, refreshes }));
+});
+"""
+    result = subprocess.run(
+        ["node", "-e", script, "static/admin.html", function_name, json.dumps(response)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
 
 
 def test_admin_task_renderer_escapes_webhook_item_name():
@@ -87,3 +159,44 @@ def test_admin_video_browser_has_library_toolbar_and_semantic_rows():
     assert 'id="video-library-count"' in html
     assert 'class="dir-row video-directory-row"' in html
     assert 'class="video-media-row"' in html
+
+
+def test_admin_video_tree_scopes_a_monitored_root_to_its_contents():
+    """Selecting tvdrama must not show direct children of other roots."""
+    result = _run_admin_tree(
+        [
+            {"name": "episode.mkv", "path": "/media/tvdrama/season-1/episode.mkv"},
+            {"name": "movie.mkv", "path": "/media/anime/movie.mkv"},
+            {"name": "film.mkv", "path": "/media/media/film.mkv"},
+        ],
+        "tvdrama",
+        ["/media/anime", "/media/media", "/media/tvdrama"],
+    )
+
+    assert result == {"subdirs": ["season-1"], "files": []}
+
+
+def test_admin_single_subtitle_request_shows_an_api_write_error():
+    """A failed write probe must be reported instead of refreshing as if queued."""
+    result = _run_admin_subtitle_request(
+        "single",
+        {"detail": "Subtitle output directory is not writable", "task_ids": [], "skipped": 0},
+    )
+
+    assert result == {
+        "messages": ["Subtitle output directory is not writable"],
+        "refreshes": 0,
+    }
+
+
+def test_admin_batch_subtitle_request_shows_an_api_write_error():
+    """A failed batch write probe must not claim that empty tasks were created."""
+    result = _run_admin_subtitle_request(
+        "batch",
+        {"detail": "Subtitle output directory is not writable", "task_ids": [], "skipped": 0},
+    )
+
+    assert result == {
+        "messages": ["Subtitle output directory is not writable"],
+        "refreshes": 0,
+    }
