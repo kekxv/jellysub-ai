@@ -87,3 +87,51 @@ def test_transcribe_with_vad_chunks_use_padding(tmp_path):
     # 单段 chunk：时间戳直接用绝对切点，且不得再加一次 cut_start（防双重偏移）
     assert segments[0]["start"] == 1.7
     assert segments[0]["end"] == 3.8
+
+
+def test_transcribe_with_vad_rescans_with_lower_threshold(tmp_path):
+    """VAD 零检出时应以更低阈值重扫，而不是直接放弃。"""
+    import core.asr.vad_wrapper as vw
+    from core.asr.base import AsrEngine
+
+    fake_engine = AsrEngine()
+    fake_engine.transcribe = MagicMock(return_value=(
+        [{"start": 0.0, "end": 1.0, "text": "hi"}], "en"))
+
+    wav_path = tmp_path / "t.wav"
+    _write_wav(wav_path)
+
+    first_call = {"args": None}
+
+    def fake_detect(audio_path, min_silence_ms=500, threshold=0.3,
+                    speech_pad_ms=300, min_speech_ms=100):
+        if first_call["args"] is None:
+            first_call["args"] = (threshold, min_speech_ms)
+            return []
+        return [type("S", (), {"start": 0.0, "end": 1.0})()]
+
+    with patch("core.asr.vad_wrapper.detect_speech_segments", side_effect=fake_detect):
+        segments, _ = vw.transcribe_with_vad(
+            fake_engine, str(wav_path), threshold=0.3,
+            speech_pad_ms=300, min_speech_ms=100,
+        )
+    # 第一次用了原始阈值
+    assert first_call["args"][0] == 0.3
+    assert len(segments) == 1
+
+
+def test_transcribe_with_vad_rescan_still_empty_returns_empty(tmp_path):
+    """重扫仍为空时应返回空列表（不抛异常、不整段直送）。"""
+    import core.asr.vad_wrapper as vw
+    from core.asr.base import AsrEngine
+
+    fake_engine = AsrEngine()
+    fake_engine.transcribe = MagicMock()
+
+    wav_path = tmp_path / "t.wav"
+    _write_wav(wav_path)
+
+    with patch("core.asr.vad_wrapper.detect_speech_segments", return_value=[]):
+        segments, _ = vw.transcribe_with_vad(fake_engine, str(wav_path))
+    assert segments == []
+    fake_engine.transcribe.assert_not_called()  # 不整段直送

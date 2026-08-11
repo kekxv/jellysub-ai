@@ -39,9 +39,26 @@ def transcribe_with_vad(
     )
 
     if not speech_segments:
-        logger.info("VAD found no speech in %s, skipping ASR",
-                     os.path.basename(audio_path))
-        return [], ""
+        # 兜底：默认阈值检不到时用更低阈值重扫，专门捞小声/低 SNR 语音。
+        # 不做"整段直送 ASR"——长音频会跑数小时。
+        rescan_threshold = max(threshold * 0.6, 0.1)
+        rescan_min_speech = min(min_speech_ms, 50)
+        logger.info(
+            "VAD found no speech at threshold=%.2f, rescanning with threshold=%.2f",
+            threshold, rescan_threshold,
+        )
+        speech_segments = detect_speech_segments(
+            audio_path, min_silence_ms,
+            rescan_threshold, speech_pad_ms, rescan_min_speech,
+        )
+        if speech_segments:
+            total = sum(s.end - s.start for s in speech_segments)
+            logger.info("VAD rescan recovered %d segments (%.1fs) at lower threshold",
+                        len(speech_segments), total)
+        else:
+            logger.info("VAD found no speech in %s (even at threshold=%.2f), skipping ASR",
+                        os.path.basename(audio_path), rescan_threshold)
+            return [], ""
 
     # 计算总语音时长
     total_speech = sum(s.end - s.start for s in speech_segments)
