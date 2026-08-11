@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import torch
 
+from silero_vad import get_speech_timestamps
+
 logger = logging.getLogger("uvicorn.error")
 
 _silero_model = None
@@ -90,14 +92,19 @@ class SpeechSegment:
     end: float    # 秒
 
 
-def detect_speech_segments(audio_path: str, min_silence_ms: int = 500) -> list[SpeechSegment]:
+def detect_speech_segments(
+    audio_path: str,
+    min_silence_ms: int = 500,
+    threshold: float = 0.3,
+    speech_pad_ms: int = 300,
+    min_speech_ms: int = 100,
+) -> list[SpeechSegment]:
     """
     使用 Silero VAD 检测音频中的语音片段。
 
     音频已是提取后的 WAV 文件（非原始视频），直接一次性读取即可。
+    threshold 越低越能检出小声/低 SNR 语音；speech_pad_ms 越大越能保住词首词尾。
     """
-    from silero_vad import get_speech_timestamps
-
     model = load_vad_model()
     wav, sr = _read_audio(audio_path)
     if wav.numel() == 0:
@@ -108,12 +115,15 @@ def detect_speech_segments(audio_path: str, min_silence_ms: int = 500) -> list[S
         _silero_model,
         sampling_rate=sr,
         return_seconds=True,
+        threshold=threshold,
+        min_speech_duration_ms=min_speech_ms,
         min_silence_duration_ms=min_silence_ms,
+        speech_pad_ms=speech_pad_ms,
     )
     segments = [SpeechSegment(start=ts["start"], end=ts["end"]) for ts in timestamps]
     total = sum(s.end - s.start for s in segments)
-    logger.info("VAD detected %d speech segments (%.1fs total) in %s",
-                len(segments), total, os.path.basename(audio_path))
+    logger.info("VAD detected %d speech segments (%.1fs total) in %s (threshold=%.2f, pad=%dms)",
+                len(segments), total, os.path.basename(audio_path), threshold, speech_pad_ms)
     return segments
 
 
@@ -143,6 +153,9 @@ def split_audio_by_vad(
     output_dir: str,
     min_silence_ms: int = 500,
     min_segment_sec: float = 0.5,
+    threshold: float = 0.3,
+    speech_pad_ms: int = 300,
+    min_speech_ms: int = 100,
 ) -> list[tuple[str, float, float]]:
     """
     按 VAD 检测的静音边界拆分音频。
@@ -159,7 +172,7 @@ def split_audio_by_vad(
     import hashlib
     import time
 
-    segments = detect_speech_segments(audio_path, min_silence_ms)
+    segments = detect_speech_segments(audio_path, min_silence_ms, threshold, speech_pad_ms, min_speech_ms)
     chunks = []
 
     name_hash = hashlib.sha256(audio_path.encode("utf-8")).hexdigest()[:12]

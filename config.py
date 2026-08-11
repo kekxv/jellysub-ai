@@ -26,6 +26,14 @@ class AppConfig(BaseModel):
     asr_api_key: str = ""               # 在线 API 密钥
     asr_model_online: str = ""          # 在线模型名
 
+    # VAD 配置（用于修复"小声语音识别不全"）
+    vad_threshold: float = 0.3           # Silero 语音概率阈值，越低越敏感（默认 0.5 会漏低 SNR 语音）
+    vad_speech_pad_ms: int = 300         # 语音段前后 padding(ms)，保住词首词尾（默认 30ms 太小）
+    vad_min_silence_ms: int = 500        # 最小静音(ms)，用于切分
+    vad_min_speech_ms: int = 100         # 最小语音(ms)，过滤瞬态噪声
+    max_subtitle_sec: float = 7.0        # 单条字幕最大时长(秒)，超限按句重切
+    audio_normalize: bool = True         # 提取音频时 loudnorm 响度归一化
+
     # 翻译配置
     translate_mode: str = "local"     # "online" | "local"
     translate_api_url: str = "https://api.openai.com/v1"
