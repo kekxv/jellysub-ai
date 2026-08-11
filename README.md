@@ -221,6 +221,25 @@ JellySub-AI/
 uv run pytest -v
 ```
 
+## VAD 与识别完整度调优
+
+识别不全（尤其小声/低 SNR 对白）通常由 VAD 漏检引起，可通过 `config.json` 调整：
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `vad_threshold` | 0.3 | Silero 语音概率阈值，越低越敏感（默认 0.5 会漏小声语音） |
+| `vad_speech_pad_ms` | 300 | 语音段 padding，保住词首词尾 |
+| `vad_min_silence_ms` | 500 | 最小静音，控制切分粒度 |
+| `vad_min_speech_ms` | 100 | 最小语音时长，过滤瞬态噪声 |
+| `audio_normalize` | true | 提取时 loudnorm 响度归一化，把小声对白拉到正常电平 |
+| `max_subtitle_sec` | 7.0 | 单条字幕最大时长，超限按标点重切、时间按字符比例分配 |
+
+工作方式：VAD 零检出时自动以更低阈值（`vad_threshold × 0.6`）重扫一次，避免静默放弃；
+切块提取带 0.3s padding 防止硬切丢词首词尾。全部参数可经 WebUI 配置保存。
+
+诊断：`GET /api/asr/diagnostics` 返回各引擎时间戳统计（`sensevoice.none` 占比高说明
+字幕时间轴大量退回估算，可优先排查 ASR 版本或回退到 Qwen3-ASR）。
+
 ## API 端点
 
 | 方法     | 路径            | 说明                  |
