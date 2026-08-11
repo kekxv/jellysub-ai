@@ -115,6 +115,14 @@ def test_index_returns_html():
     assert "JellySub-AI" in resp.text
 
 
+def test_health_endpoint_is_unauthenticated():
+    """Docker HEALTHCHECK / 编排探针依赖无认证的 /api/health。"""
+    client = TestClient(app, base_url="https://testserver")
+    resp = client.get("/api/health")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+
+
 def test_get_config():
     """GET /api/config 应返回当前配置。"""
     client = TestClient(app, base_url="https://testserver")

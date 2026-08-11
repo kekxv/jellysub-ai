@@ -280,6 +280,12 @@ async def admin_page(request: Request):
 
 # --- 脱敏状态 API ---
 
+@app.get("/api/health")
+async def api_health():
+    """无认证健康检查，供 Docker HEALTHCHECK / 编排探针使用。"""
+    return {"status": "ok"}
+
+
 @app.get("/api/status")
 async def api_status(request: Request):
     _require_auth(request)

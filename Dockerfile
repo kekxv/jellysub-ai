@@ -19,7 +19,12 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-install-project
+    uv sync --locked --no-dev --no-install-project \
+    && rm -rf \
+        /app/.venv/lib/python*/site-packages/torch/test \
+        /app/.venv/lib/python*/site-packages/torch/include \
+        /app/.venv/lib/python*/site-packages/gradio \
+        /app/.venv/lib/python*/site-packages/gradio_client
 
 FROM python:3.12-slim AS runtime
 
@@ -50,6 +55,9 @@ COPY static /app/static
 
 VOLUME ["/data"]
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
 
 USER app
 WORKDIR /data
