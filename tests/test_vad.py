@@ -52,3 +52,38 @@ def test_detect_speech_segments_forwards_tuned_params(tmp_path):
     assert kwargs["speech_pad_ms"] == 500
     assert kwargs["min_speech_duration_ms"] == 80
     assert kwargs["min_silence_duration_ms"] == 400
+
+
+def test_transcribe_with_vad_chunks_use_padding(tmp_path):
+    """切块提取应带 ±pad_sec padding，时间戳按实际切点偏移（不重复加 seg.start）。"""
+    import core.asr.vad_wrapper as vw
+    from core.asr.base import AsrEngine
+
+    fake_engine = AsrEngine()
+    # 每次调用返回全新 dict（真实引擎不会复用对象）
+    fake_engine.transcribe = MagicMock(side_effect=lambda *a, **k: (
+        [{"start": 0.0, "end": 1.0, "text": "hello"}], "en"))
+
+    wav_path = tmp_path / "t.wav"
+    _write_wav(wav_path, seconds=5.0)
+
+    # 两个段，总语音时长 >= 30s 才会进入切块循环
+    segs = [
+        type("S", (), {"start": 2.0, "end": 3.5})(),
+        type("S", (), {"start": 40.0, "end": 70.0})(),
+    ]
+    with patch("core.asr.vad_wrapper.detect_speech_segments", return_value=segs), \
+         patch("core.asr.vad_wrapper.get_audio_duration", return_value=60.0), \
+         patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        segments, _ = vw.transcribe_with_vad(
+            fake_engine, str(wav_path), min_silence_ms=500,
+            threshold=0.3, speech_pad_ms=300, min_speech_ms=100, pad_sec=0.3,
+        )
+    # 第一个切块命令使用 padding 后的切点 2.0-0.3=1.7 / 3.5+0.3=3.8
+    cmd = mock_run.call_args_list[0].args[0]
+    assert "-ss" in cmd and "1.7" in cmd
+    assert "-to" in cmd and "3.8" in cmd
+    # 单段 chunk：时间戳直接用绝对切点，且不得再加一次 cut_start（防双重偏移）
+    assert segments[0]["start"] == 1.7
+    assert segments[0]["end"] == 3.8

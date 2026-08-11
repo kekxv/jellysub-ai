@@ -7,10 +7,13 @@
 import hashlib
 import logging
 import os
+import subprocess
 import tempfile
 import time
 
 from core.asr.base import AsrEngine, add_silence_gaps
+from core.audio import get_audio_duration
+from core.vad import detect_speech_segments
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -19,15 +22,21 @@ def transcribe_with_vad(
     engine: AsrEngine,
     audio_path: str,
     min_silence_ms: int = 500,
+    threshold: float = 0.3,
+    speech_pad_ms: int = 300,
+    min_speech_ms: int = 100,
     language: str = "auto",
+    pad_sec: float = 0.3,
 ) -> tuple[list[dict], str]:
     """
     使用 VAD 分块处理长音频并识别。
-    """
-    from core.vad import detect_speech_segments
 
+    pad_sec: 切块时每侧额外包含的秒数，避免硬切丢失词首/词尾（VAD 起检会滞后）。
+    """
     # 检测语音片段
-    speech_segments = detect_speech_segments(audio_path, min_silence_ms)
+    speech_segments = detect_speech_segments(
+        audio_path, min_silence_ms, threshold, speech_pad_ms, min_speech_ms
+    )
 
     if not speech_segments:
         logger.info("VAD found no speech in %s, skipping ASR",
@@ -36,6 +45,7 @@ def transcribe_with_vad(
 
     # 计算总语音时长
     total_speech = sum(s.end - s.start for s in speech_segments)
+    duration = get_audio_duration(audio_path) or (speech_segments[-1].end + pad_sec)
 
     if len(speech_segments) == 1 or total_speech < 30:
         # 短音频或单一段，直接处理
@@ -57,13 +67,16 @@ def transcribe_with_vad(
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         for i, seg in enumerate(speech_segments):
+            # 带 padding 的切点，并夹到音频范围内（保住词首词尾，避免硬切）
+            cut_start = max(0.0, seg.start - pad_sec)
+            cut_end = min(duration, seg.end + pad_sec)
+
             # 提取分块
             chunk_path = os.path.join(tmp_dir, f"{prefix}_chunk_{i:04d}.wav")
-            import subprocess
             cmd = [
                 "ffmpeg", "-y", "-i", audio_path,
-                "-ss", str(seg.start),
-                "-to", str(seg.end),
+                "-ss", str(round(cut_start, 3)),
+                "-to", str(round(cut_end, 3)),
                 "-acodec", "pcm_s16le",
                 "-ar", "16000",
                 "-ac", "1",
@@ -89,20 +102,22 @@ def transcribe_with_vad(
                 if not detected_lang:
                     detected_lang = chunk_lang
 
-            # 每个 chunk 只有一个片段时，直接用 VAD 边界
+            # 每个 chunk 只有一个片段时，直接用切块边界（含 padding）
             if len(chunk_segments) == 1 and chunk_segments[0]["start"] == 0.0:
-                chunk_segments[0]["start"] = round(seg.start, 3)
-                chunk_segments[0]["end"] = round(seg.end, 3)
+                chunk_segments[0]["start"] = round(cut_start, 3)
+                chunk_segments[0]["end"] = round(cut_end, 3)
+                all_segments.append(chunk_segments[0])
+            else:
+                # 还原时间戳到原始音频时间轴：偏移基准是 cut_start（含 padding 的起点）
+                for s in chunk_segments:
+                    s["start"] = round(s["start"] + cut_start, 3)
+                    s["end"] = round(s["end"] + cut_start, 3)
+                    all_segments.append(s)
 
-            # 还原时间戳到原始音频时间轴
-            for s in chunk_segments:
-                s["start"] = round(s["start"] + seg.start, 3)
-                s["end"] = round(s["end"] + seg.start, 3)
-                all_segments.append(s)
-
-            logger.info("VAD chunk %d/%d: %.1f-%.1f min → %d segments (lang=%s)",
+            logger.info("VAD chunk %d/%d: %.1f-%.1f min → cut %.1f-%.1fs → %d segments (lang=%s)",
                         i + 1, len(speech_segments),
                         seg.start / 60, seg.end / 60,
+                        cut_start, cut_end,
                         len(chunk_segments), chunk_lang)
 
             # 关键 2：激进释放内存。
