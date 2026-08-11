@@ -1,6 +1,7 @@
 """Qwen3-ASR 引擎 — 支持 0.6B 和 1.7B 模型。"""
 
 import logging
+import os
 import threading
 import time
 
@@ -9,6 +10,19 @@ import torch
 from core.asr.base import AsrEngine, group_into_segments
 
 logger = logging.getLogger("uvicorn.error")
+
+# 诊断统计：记录每次识别是否返回词级时间戳（Qwen3-ASR 走强制对齐，正常都应返回）。
+_ts_stats = {"calls": 0, "with_ts": 0, "none": 0}
+
+
+def get_qwen3_stats() -> dict:
+    """返回时间戳诊断统计副本（供 /api/asr/diagnostics 与日志摘要使用）。"""
+    return dict(_ts_stats)
+
+
+def reset_qwen3_stats() -> None:
+    """重置诊断统计（引擎切换/服务重启时调用）。"""
+    _ts_stats.update(calls=0, with_ts=0, none=0)
 
 
 class Qwen3AsrEngine(AsrEngine):
@@ -113,6 +127,8 @@ class Qwen3AsrEngine(AsrEngine):
             elif torch.backends.mps.is_available():
                 torch.mps.empty_cache()
             logger.info("Qwen3-ASR model released")
+        if _ts_stats["calls"]:
+            logger.info("Qwen3-ASR timestamp stats: %s", get_qwen3_stats())
 
     def transcribe(self, audio_path: str, language: str = "auto") -> tuple[list[dict], str]:
         model = self._load_model()
@@ -156,8 +172,15 @@ class Qwen3AsrEngine(AsrEngine):
 
         time_stamps = getattr(result, "time_stamps", None)
         if not time_stamps:
-            logger.warning("No timestamps from ASR, using full text as single segment")
+            _ts_stats["calls"] += 1
+            _ts_stats["none"] += 1
+            logger.warning(
+                "Qwen3-ASR no timestamps (audio=%s) — 字幕时间轴退回估算. "
+                "累计: %s", os.path.basename(audio_path), get_qwen3_stats()
+            )
             return [{"start": 0.0, "end": 0.0, "text": result.text.strip()}], detected_lang
+        _ts_stats["calls"] += 1
+        _ts_stats["with_ts"] += 1
 
         segments = group_into_segments(result.text, time_stamps)
         logger.info("ASR produced %d segments", len(segments))

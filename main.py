@@ -294,6 +294,18 @@ async def api_status(request: Request):
     }
 
 
+@app.get("/api/asr/diagnostics")
+async def api_asr_diagnostics(request: Request):
+    """返回 ASR 时间戳诊断统计。
+
+    sensevoice: {calls, word, sentence, none} —— none 占比高说明字幕时间轴
+    大量退回估算（与"识别不全/时间轴错位"相关）。
+    """
+    _require_auth(request)
+    from core.asr import get_asr_diagnostics
+    return get_asr_diagnostics()
+
+
 # --- 配置 API（需认证）---
 
 class ConfigResponse(BaseModel):

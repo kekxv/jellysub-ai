@@ -53,6 +53,26 @@ def test_find_existing_subtitle_found():
         assert result == sub_path
 
 
+def test_find_existing_subtitle_hyphenated_tags():
+    """回归：带连字符的语言标签（zh-CN/zh-TW）应被正确剥离。
+
+    旧正则在 \.zh 后只能识别点号开头的内容，`-CN` 无法匹配，
+    导致 Movie.zh-CN.srt 这类常见命名漏检。
+    """
+    for name, sub_file in [
+        ("Movie", "Movie.zh-CN.srt"),
+        ("Movie", "Movie.zh-TW.srt"),
+        ("Show.S01E01", "Show.S01E01.default.zh-CN.srt"),
+        ("Movie.2024", "Movie.2024.bilingual.zh-TW.srt"),
+    ]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sub_path = os.path.join(tmpdir, sub_file)
+            with open(sub_path, "w", encoding="utf-8") as f:
+                f.write("1\n00:00:00,000 --> 00:00:03,000\n测试\n\n")
+            result = find_existing_subtitle(tmpdir, name)
+            assert result == sub_path, f"{sub_file} 未被识别为 {name} 的字幕"
+
+
 def test_find_existing_subtitle_not_found():
     """目录中无中文字幕应返回 None。"""
     with tempfile.TemporaryDirectory() as tmpdir:

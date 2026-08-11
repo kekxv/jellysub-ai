@@ -12,8 +12,8 @@ from core.asr.base import (
     add_silence_gaps,
     group_into_segments,
 )
-from core.asr.qwen3 import Qwen3AsrEngine
-from core.asr.sensevoice import SenseVoiceAsrEngine
+from core.asr.qwen3 import Qwen3AsrEngine, get_qwen3_stats, reset_qwen3_stats
+from core.asr.sensevoice import SenseVoiceAsrEngine, get_sensevoice_stats, reset_sensevoice_stats
 from core.asr.openai_api import OpenaiAsrEngine
 
 # 向后兼容别名（测试用）
@@ -33,6 +33,8 @@ __all__ = [
     "set_asr_busy",
     "release_all_engines",
     "check_asr_idle",
+    "get_asr_diagnostics",
+    "reset_asr_diagnostics",
 ]
 
 # =========================================================================== #
@@ -116,6 +118,24 @@ def check_asr_idle(timeout: int):
         if elapsed > timeout:
             logger.info("ASR engine idle timeout (%ds), releasing...", timeout)
             release_all_engines()
+
+
+def get_asr_diagnostics() -> dict:
+    """汇总各 ASR 引擎的时间戳诊断统计。
+
+    用于判断"识别不全/时间轴错位"是否与 ASR 未返回时间戳有关：
+    sensevoice.none / qwen3.none 占比高 -> 字幕时间轴大量退回估算。
+    """
+    return {
+        "sensevoice": get_sensevoice_stats(),
+        "qwen3": get_qwen3_stats(),
+    }
+
+
+def reset_asr_diagnostics() -> None:
+    """重置所有 ASR 引擎的诊断统计。"""
+    reset_sensevoice_stats()
+    reset_qwen3_stats()
 
 
 # =========================================================================== #

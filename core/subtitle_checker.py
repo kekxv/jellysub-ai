@@ -9,7 +9,7 @@ logger = logging.getLogger("uvicorn.error")
 _SUBTITLE_EXTENSIONS = (".srt", ".vtt", ".ass")
 
 # 字幕文件名中的语言/标签后缀，去掉后与视频名匹配
-_LANG_TAGS_RE = re.compile(r'\.(?:zh|chi|chs|cht|cn|en|eng|ja|jpn|ko|kor|default|bilingual|foreign)(?:\.[^.]*)*$', re.IGNORECASE)
+_LANG_TAGS_RE = re.compile(r'\.(?:zh|chi|chs|cht|cn|en|eng|ja|jpn|ko|kor|default|bilingual|foreign)(?:[-_.][^.]*)*$', re.IGNORECASE)
 
 
 def _strip_lang_tags(stem: str) -> str:

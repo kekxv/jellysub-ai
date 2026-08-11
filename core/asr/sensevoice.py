@@ -1,6 +1,7 @@
 """SenseVoice 引擎 — 基于 FunASR SenseVoiceSmall。"""
 
 import logging
+import os
 import re
 import threading
 import time
@@ -10,6 +11,20 @@ import torch
 from core.asr.base import AsrEngine, _SENTENCE_PUNCT, add_silence_gaps, join_words
 
 logger = logging.getLogger("uvicorn.error")
+
+# 诊断统计：记录每次识别返回的时间戳类型。
+# word=词级时间戳（最准）；sentence=句级时间戳；none=无时间戳（字幕时间轴退回估算）。
+_ts_stats = {"calls": 0, "word": 0, "sentence": 0, "none": 0}
+
+
+def get_sensevoice_stats() -> dict:
+    """返回时间戳诊断统计副本（供 /api/asr/diagnostics 与日志摘要使用）。"""
+    return dict(_ts_stats)
+
+
+def reset_sensevoice_stats() -> None:
+    """重置诊断统计（引擎切换/服务重启时调用）。"""
+    _ts_stats.update(calls=0, word=0, sentence=0, none=0)
 
 # SenseVoice 文本标签正则
 _SENSEVOICE_TAGS = re.compile(r"<\|[^>]*\|>")
@@ -130,6 +145,8 @@ class SenseVoiceAsrEngine(AsrEngine):
             elif torch.backends.mps.is_available():
                 torch.mps.empty_cache()
             logger.info("SenseVoice model released")
+        if _ts_stats["calls"]:
+            logger.info("SenseVoice timestamp stats: %s", get_sensevoice_stats())
 
     def need_vad(self) -> bool:
         return True
@@ -205,12 +222,20 @@ class SenseVoiceAsrEngine(AsrEngine):
             logger.info("SenseVoice raw words sample: %s", repr(words[:5]))
 
         if timestamps and words:
+            _ts_stats["calls"] += 1
+            _ts_stats["word"] += 1
             segments = self._word_timestamps_to_segments(timestamps, words)
         elif timestamps:
-            # 只有时间戳没有 words（句子级 [[start, end], ...]）
+            _ts_stats["calls"] += 1
+            _ts_stats["sentence"] += 1
             segments = self._timestamps_to_segments(timestamps, text)
         else:
-            logger.warning("No timestamps from SenseVoice, using full text as single segment")
+            _ts_stats["calls"] += 1
+            _ts_stats["none"] += 1
+            logger.warning(
+                "SenseVoice no timestamps (audio=%s, %.1fs) — 字幕时间轴退回估算. "
+                "累计: %s", os.path.basename(audio_path), duration, get_sensevoice_stats()
+            )
             segments = [{"start": 0.0, "end": 0.0, "text": text}]
 
         logger.info("SenseVoice ASR produced %d segments", len(segments))
