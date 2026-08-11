@@ -185,3 +185,17 @@ def test_fix_timestamps_distributes_proportionally(tmp_path):
     assert out[0]["text"].startswith("第一句")
     assert out[0]["start"] == 0.0 and out[0]["end"] == 4.0
     assert out[1]["start"] == 5.0 and out[1]["end"] == 6.0
+
+
+def test_extract_audio_cmd_adds_loudnorm_when_normalize():
+    from core.audio import _extract_audio_cmd
+    cmd = _extract_audio_cmd("in.mp4", "out.wav", normalize=True)
+    assert "-af" in cmd
+    assert "loudnorm=I=-23:TP=-1.5:LRA=11" in cmd
+    assert "-ar" in cmd and "16000" in cmd  # 采样率保持不变
+
+
+def test_extract_audio_cmd_skips_loudnorm_when_disabled():
+    from core.audio import _extract_audio_cmd
+    cmd = _extract_audio_cmd("in.mp4", "out.wav", normalize=False)
+    assert "loudnorm" not in cmd

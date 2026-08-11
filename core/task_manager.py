@@ -507,7 +507,7 @@ class TaskManager:
 
             check_memory_limit()
             ok = asyncio.new_event_loop().run_until_complete(
-                extract_audio(video_path, audio_path)
+                extract_audio(video_path, audio_path, normalize=cfg.audio_normalize)
             )
             if not ok:
                 raise RuntimeError("Audio extraction failed")

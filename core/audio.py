@@ -8,19 +8,15 @@ import subprocess
 logger = logging.getLogger("uvicorn.error")
 
 
-async def extract_audio(media_path: str, output_path: str) -> bool:
-    """从视频中提取音频，转为 16kHz 单声道 WAV。"""
-    cmd = [
-        "ffmpeg",
-        "-i", media_path,
-        "-vn",
-        "-acodec", "pcm_s16le",
-        "-ar", "16000",
-        "-ac", "1",
-        "-y",
-        output_path,
-    ]
-    logger.info("Extracting audio: %s -> %s", media_path, output_path)
+async def extract_audio(media_path: str, output_path: str, normalize: bool = True) -> bool:
+    """从视频中提取音频，转为 16kHz 单声道 WAV。
+
+    normalize=True 时加 loudnorm 响度归一化：把小声对白拉到与正常对白
+    相近的电平，降低 VAD 漏检和 ASR 误识率（不改变采样率，16kHz 保留
+    擦音高频信息）。
+    """
+    cmd = _extract_audio_cmd(media_path, output_path, normalize=normalize)
+    logger.info("Extracting audio: %s -> %s (normalize=%s)", media_path, output_path, normalize)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -38,6 +34,25 @@ async def extract_audio(media_path: str, output_path: str) -> bool:
     except Exception:
         logger.exception("Audio extraction failed")
         return False
+
+
+def _extract_audio_cmd(media_path: str, output_path: str, normalize: bool = True) -> list[str]:
+    """构造 ffmpeg 提取命令。normalize=True 时插入 loudnorm 响度归一化滤镜。"""
+    cmd = [
+        "ffmpeg",
+        "-i", media_path,
+        "-vn",
+        "-acodec", "pcm_s16le",
+        "-ar", "16000",
+        "-ac", "1",
+        "-y",
+        output_path,
+    ]
+    if normalize:
+        # -af 滤镜需放在输出文件之前
+        cmd.insert(-2, "-af")
+        cmd.insert(-2, "loudnorm=I=-23:TP=-1.5:LRA=11")
+    return cmd
 
 
 async def has_internal_subtitle(media_path: str) -> bool:
