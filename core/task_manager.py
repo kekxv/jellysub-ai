@@ -543,7 +543,10 @@ class TaskManager:
                         api_key=cfg.asr_api_key,
                         model_online=cfg.asr_model_online,
                         use_vad=True,
-                        vad_min_silence_ms=500,
+                        vad_min_silence_ms=cfg.vad_min_silence_ms,
+                        vad_threshold=cfg.vad_threshold,
+                        vad_speech_pad_ms=cfg.vad_speech_pad_ms,
+                        vad_min_speech_ms=cfg.vad_min_speech_ms,
                     )
 
                 finally:

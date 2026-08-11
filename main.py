@@ -328,6 +328,13 @@ class ConfigResponse(BaseModel):
     path_mappings: dict[str, str]
     temp_dir: str
     video_dirs: list[str]
+    # VAD 配置（与 config.py AppConfig 保持一致，防止保存配置时被丢弃）
+    vad_threshold: float = 0.3
+    vad_speech_pad_ms: int = 300
+    vad_min_silence_ms: int = 500
+    vad_min_speech_ms: int = 100
+    max_subtitle_sec: float = 7.0
+    audio_normalize: bool = True
 
 
 @app.get("/api/config", response_model=ConfigResponse)

@@ -169,6 +169,9 @@ def run_asr(
     engine: str = "qwen3-asr",
     use_vad: bool = False,
     vad_min_silence_ms: int = 500,
+    vad_threshold: float = 0.3,
+    vad_speech_pad_ms: int = 300,
+    vad_min_speech_ms: int = 100,
 ) -> tuple[list[dict], str]:
     """
     对音频进行语音识别，返回 (片段列表, 检测到的语言代码)。
@@ -178,6 +181,9 @@ def run_asr(
     asr_language: "auto" | "zh" | "en" | "ja" | "ko" | "yue"
     use_vad: 是否使用 Silero VAD 分块处理长音频，防止死循环
     vad_min_silence_ms: VAD 最小静音持续时间（毫秒），用于切分
+    vad_threshold: VAD 语音概率阈值（越低越敏感）
+    vad_speech_pad_ms: VAD 语音段 padding（毫秒），保住词首词尾
+    vad_min_speech_ms: VAD 最小语音时长（毫秒）
     """
     # 向后兼容：mode="online" 等价于 engine="openai"
     if mode == "online" or engine == "openai":
@@ -189,6 +195,13 @@ def run_asr(
 
     if use_vad and eng.need_vad():
         from core.asr.vad_wrapper import transcribe_with_vad
-        return transcribe_with_vad(eng, audio_path, min_silence_ms=vad_min_silence_ms, language=asr_language)
+        return transcribe_with_vad(
+            eng, audio_path,
+            min_silence_ms=vad_min_silence_ms,
+            threshold=vad_threshold,
+            speech_pad_ms=vad_speech_pad_ms,
+            min_speech_ms=vad_min_speech_ms,
+            language=asr_language,
+        )
 
     return eng.transcribe(audio_path, language=asr_language)

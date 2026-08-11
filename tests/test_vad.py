@@ -199,3 +199,43 @@ def test_extract_audio_cmd_skips_loudnorm_when_disabled():
     from core.audio import _extract_audio_cmd
     cmd = _extract_audio_cmd("in.mp4", "out.wav", normalize=False)
     assert "loudnorm" not in cmd
+
+
+def test_run_asr_forwards_vad_params(tmp_path):
+    """run_asr 应把 VAD 参数透传给 transcribe_with_vad。"""
+    from core.asr import run_asr
+
+    wav_path = tmp_path / "t.wav"
+    _write_wav(wav_path)
+
+    with patch("core.asr.get_asr_engine") as mock_eng, \
+         patch("core.asr.vad_wrapper.transcribe_with_vad", return_value=([], "")) as mock_twv:
+        mock_eng.return_value = type("E", (), {"need_vad": lambda self: True})()
+        run_asr(str(wav_path), engine="qwen3-asr", use_vad=True,
+                vad_min_silence_ms=400, vad_threshold=0.25,
+                vad_speech_pad_ms=500, vad_min_speech_ms=80)
+    _, kwargs = mock_twv.call_args
+    assert kwargs["min_silence_ms"] == 400
+    assert kwargs["threshold"] == 0.25
+    assert kwargs["speech_pad_ms"] == 500
+    assert kwargs["min_speech_ms"] == 80
+
+
+def test_config_response_includes_vad_fields():
+    """ConfigResponse 必须包含新字段，避免保存配置时被 pydantic 丢弃。"""
+    from main import ConfigResponse
+    body = ConfigResponse.model_validate({
+        "asr_mode": "local", "asr_model": "m", "asr_api_url": "",
+        "asr_api_key": "", "asr_model_online": "",
+        "translate_mode": "local", "translate_api_url": "",
+        "translate_api_key": "", "translate_model": "",
+        "translate_model_local": "", "translate_prompt_format": "json",
+        "translate_thinking": False, "target_language": "zh-CN",
+        "path_mappings": {}, "temp_dir": "./tmp", "video_dirs": [],
+        "vad_threshold": 0.2, "vad_speech_pad_ms": 400,
+        "vad_min_silence_ms": 300, "vad_min_speech_ms": 60,
+        "max_subtitle_sec": 6.0, "audio_normalize": False,
+    })
+    assert body.vad_threshold == 0.2
+    assert body.audio_normalize is False
+    assert body.max_subtitle_sec == 6.0
