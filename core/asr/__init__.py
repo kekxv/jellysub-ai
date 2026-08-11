@@ -11,6 +11,7 @@ from core.asr.base import (
     join_words,
     add_silence_gaps,
     group_into_segments,
+    reflow_long_segments,
 )
 from core.asr.qwen3 import Qwen3AsrEngine, get_qwen3_stats, reset_qwen3_stats
 from core.asr.sensevoice import SenseVoiceAsrEngine, get_sensevoice_stats, reset_sensevoice_stats
@@ -27,6 +28,7 @@ __all__ = [
     "join_words",
     "add_silence_gaps",
     "group_into_segments",
+    "reflow_long_segments",
     "_add_silence_gaps",  # 向后兼容别名
     "get_asr_engine",
     "run_asr",

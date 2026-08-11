@@ -56,6 +56,54 @@ def join_words(words: list) -> str:
     return text.strip()
 
 
+def reflow_long_segments(
+    segments: list[dict],
+    max_sec: float = 7.0,
+    max_chars: int = 60,
+) -> list[dict]:
+    """把过长的字幕段按标点重切，时间按字符数比例分配。
+
+    用于 ASR 未返回时间戳（或 VAD 合并导致段过长）时的兜底：
+    每段内部按字符比例插值时间，保证"单条字幕不长"且总时长不变。
+    无标点可拆的段原样保留（避免粗暴均分）。标点随句保留。
+    """
+    out: list[dict] = []
+    for seg in segments:
+        dur = seg["end"] - seg["start"]
+        text = seg.get("text", "").strip()
+        if dur <= max_sec and len(text) <= max_chars:
+            out.append(seg)
+            continue
+
+        # 按句末标点切分，标点随句保留（finditer 含标点区间）
+        parts: list[str] = []
+        last = 0
+        for m in _SENTENCE_PUNCT.finditer(text):
+            piece = text[last:m.end()].strip()
+            if piece:
+                parts.append(piece)
+            last = m.end()
+        tail = text[last:].strip()
+        if tail:
+            parts.append(tail)
+
+        if len(parts) < 2:
+            out.append(seg)  # 拆不动
+            continue
+
+        total_chars = sum(len(p) for p in parts)
+        t = seg["start"]
+        for part in parts:
+            span = dur * len(part) / total_chars
+            out.append({
+                "start": round(t, 3),
+                "end": round(t + span, 3),
+                "text": part,
+            })
+            t += span
+    return out
+
+
 def add_silence_gaps(segments: list[dict], min_gap: float = 0.2) -> list[dict]:
     """在相邻字幕段之间留出静音间隙，给观众阅读时间。"""
     if len(segments) < 2:

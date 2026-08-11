@@ -135,3 +135,53 @@ def test_transcribe_with_vad_rescan_still_empty_returns_empty(tmp_path):
         segments, _ = vw.transcribe_with_vad(fake_engine, str(wav_path))
     assert segments == []
     fake_engine.transcribe.assert_not_called()  # 不整段直送
+
+
+def test_reflow_long_segment_splits_by_punctuation():
+    from core.asr.base import reflow_long_segments
+    segs = [{"start": 0.0, "end": 8.0, "text": "第一句。第二句。第三句。"}]
+    out = reflow_long_segments(segs, max_sec=5.0, max_chars=100)
+    assert len(out) == 3
+    assert out[0]["text"] == "第一句。"  # 保留标点
+    assert out[-1]["end"] == 8.0
+    # 时间按字符比例：3 句等长 → 每句 8/3 s
+    assert abs(out[1]["start"] - 8.0 / 3) < 0.01
+    assert abs(out[1]["end"] - 16.0 / 3) < 0.01
+
+
+def test_reflow_keeps_short_and_unsplittable_segments():
+    from core.asr.base import reflow_long_segments
+    segs = [
+        {"start": 0.0, "end": 2.0, "text": "短句。"},
+        {"start": 2.0, "end": 20.0, "text": "没有标点的超长连续文本没有标点的超长连续文本没有标点"},
+    ]
+    out = reflow_long_segments(segs, max_sec=5.0, max_chars=30)
+    assert out[0] == segs[0]
+    assert out[1] == segs[1]  # 拆不动原样保留
+
+
+def test_reflow_distributes_by_char_proportion():
+    from core.asr.base import reflow_long_segments
+    # 两句：9 字符 + 3 字符（含标点），共 12 字符，总时长 5s → 3.75s / 1.25s
+    segs = [{"start": 0.0, "end": 5.0, "text": "一二三四五六七八。九零。"}]
+    out = reflow_long_segments(segs, max_sec=3.0, max_chars=100)
+    assert len(out) == 2
+    assert abs(out[0]["end"] - 5.0 * 9 / 12) < 0.01
+    assert abs(out[1]["start"] - 5.0 * 9 / 12) < 0.01
+    assert out[1]["end"] == 5.0
+
+
+def test_fix_timestamps_distributes_proportionally(tmp_path):
+    """_fix_timestamps 应按 VAD 时长比例分配句子，而不是剩余全倒进最后一段。"""
+    import core.asr.vad_wrapper as vw
+    segments = [{"start": 0.0, "end": 0.0, "text": "第一句。第二句。第三句。第四句。"}]
+    speech_segments = [
+        type("S", (), {"start": 0.0, "end": 4.0})(),
+        type("S", (), {"start": 5.0, "end": 6.0})(),
+    ]
+    out = vw._fix_timestamps(segments, speech_segments, "/tmp/t.wav")
+    # 4 句话按 4:1 时长比例分配 → 第一段约 2-3 句，第二段约 1 句
+    assert len(out) == 2
+    assert out[0]["text"].startswith("第一句")
+    assert out[0]["start"] == 0.0 and out[0]["end"] == 4.0
+    assert out[1]["start"] == 5.0 and out[1]["end"] == 6.0

@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import time
 
-from core.asr.base import AsrEngine, add_silence_gaps
+from core.asr.base import AsrEngine, add_silence_gaps, reflow_long_segments
 from core.audio import get_audio_duration
 from core.vad import detect_speech_segments
 
@@ -151,6 +151,9 @@ def transcribe_with_vad(
     # 按时间排序
     all_segments.sort(key=lambda x: x["start"])
 
+    # 兜底：超长字幕段按句重切（ASR 未给时间戳时，长 chunk 会变成单条超长字幕）
+    all_segments = reflow_long_segments(all_segments)
+
     # 添加静音间隙
     all_segments = add_silence_gaps(all_segments)
 
@@ -195,41 +198,33 @@ def _fix_timestamps(
     if not sentences:
         return segments
 
-    # 将句子分配到 VAD 片段
+    # 按 VAD 片段时长比例分配句子，避免剩余句子全倒进最后一段
+    total_dur = sum(max(0.3, s.end - s.start) for s in speech_segments) or 1.0
+    total_chars = sum(len(s) for s in sentences) or 1
     result = []
-    vad_idx = 0
     sent_idx = 0
-
-    while vad_idx < len(speech_segments) and sent_idx < len(sentences):
-        vad_seg = speech_segments[vad_idx]
-        if vad_seg.end - vad_seg.start < 0.3:
-            vad_idx += 1
-            continue
-
-        # 分配 1-2 个句子到当前 VAD 片段
+    for vad_seg in speech_segments:
+        if sent_idx >= len(sentences):
+            break
+        budget = max(1, int(total_chars * max(0.3, vad_seg.end - vad_seg.start) / total_dur))
         group = []
-        group.append(sentences[sent_idx])
-        sent_idx += 1
-
-        # 如果还有句子，尽量分配一个
-        if sent_idx < len(sentences) and vad_idx + 1 < len(speech_segments):
+        while sent_idx < len(sentences) and sum(len(x) for x in group) < budget:
             group.append(sentences[sent_idx])
             sent_idx += 1
-
-        seg_text = " ".join(group)
+        if not group:
+            continue
         result.append({
             "start": round(vad_seg.start, 3),
             "end": round(vad_seg.end, 3),
-            "text": seg_text,
+            "text": " ".join(group),
         })
-        vad_idx += 1
 
-    # 剩余句子合并到最后一段
+    # 剩余句子并入最后一段（比例分配后正常不应发生）
     if sent_idx < len(sentences) and result:
         result[-1]["text"] += " " + " ".join(sentences[sent_idx:])
-    elif sent_idx < len(sentences):
-        # 没有足够 VAD 片段，用最后一个片段延长
-        if result:
-            result[-1]["text"] += " " + " ".join(sentences[sent_idx:])
 
-    return result if result else segments
+    if not result:
+        return segments
+
+    # 重切兜底：分配后仍有超长段则按句再拆
+    return reflow_long_segments(result)
