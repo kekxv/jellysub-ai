@@ -27,6 +27,7 @@ images/
 .idea/
 .claude/
 .venv/
+.worktrees/
 jellysub_ai.egg-info/
 .env
 .env.*

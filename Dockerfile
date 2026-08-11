@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:0.11.30 AS uv
+FROM ghcr.io/astral-sh/uv:0.11.30@sha256:93b61e21202b1dab861092748e46bbd6e0e41dd84f59b9174efd2353186e1b47 AS uv
 
 FROM python:3.12-slim AS builder
 
@@ -18,7 +18,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_HTTP_TIMEOUT=300 \
     UV_LINK_MODE=copy
 
-RUN uv sync --locked --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-install-project
 
 FROM python:3.12-slim AS runtime
 
