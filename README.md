@@ -248,7 +248,33 @@ uv run pytest -v
 | `POST` | `/webhook`    | 接收 Jellyfin Webhook |
 | `GET`  | `/api/config` | 获取当前配置              |
 | `PUT`  | `/api/config` | 保存配置                |
+| `GET`  | `/api/videos/subtitle/sources` | 列出视频可用的字幕来源（外部字幕文件 + 内置字幕流） |
 | `GET`  | `/static/*`   | 静态资源                |
+
+### 从已有字幕翻译（比 ASR 更准确）
+
+在 WebUI 中选择视频生成字幕时，可在弹窗里切换「字幕来源」：
+
+- **语音识别 (ASR)**：默认方式，从音频识别文本再翻译。
+- **已有字幕翻译**：直接以视频旁已有的字幕文件（`.srt`/`.vtt`/`.ass`）或 MKV/MP4
+  内置字幕流作为**文本来源**，跳过语音识别，翻译结果通常更准确且时间轴与原文完全一致。
+
+单个视频生成时可从下拉列表里选择具体用哪个字幕来源；批量生成时每个视频自动选用
+已有字幕，没有可用字幕的视频自动回退到 ASR 模式。
+
+翻译时会先判定/选择**源语言**：选择字幕来源后自动识别其语言并在「源语言」
+下拉框预填，用户也可以手动改成其它语言；忘记选择时默认「自动检测」，由服务对
+字幕内容做脚本/常见词识别。请求体新增可选字段：
+
+```json
+{
+  "video_path": "/path/to/movie.mkv",
+  "source_type": "subtitle",            // "asr" | "subtitle"
+  "subtitle_path": "/path/to/movie.en.srt",  // source_type=subtitle 时可选（外部文件）
+  "subtitle_index": 1,                         // 或指定内置字幕流索引
+  "source_lang": "auto"                       // 源语言；auto=自动识别，也可填 en/zh/ja/ko/fr/de/es/it/pt/ru/ar 等
+}
+```
 
 ## 开发
 

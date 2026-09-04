@@ -1124,3 +1124,10 @@ input:focus, select:focus {
     .video-library-count { display:flex; align-items:center; justify-content:space-between; padding:.5rem 0 0; border-top:1px solid var(--border); border-left:none; text-align:left; }
     .video-library-count span { text-align:right; }.file-list-table .col-status { width:94px; }.directory-status { font-size:.62rem; }.file-name-content small { max-width:12rem; }
 }
+
+/* ===== Language Modal: subtitle source ===== */
+.modal-sub-label { margin:0.9rem 0 0.4rem; font-size:0.72rem; font-weight:700; letter-spacing:0.04em; color:var(--text-muted); text-transform:uppercase; }
+.source-type-tabs { margin-bottom:0; }
+.source-type-tabs .tab-btn { flex:1; }
+.source-type-tabs .tab-btn.disabled { opacity:.45; cursor:not-allowed; }
+.form-hint { margin:0.45rem 0 0; font-size:0.74rem; color:var(--text-muted); }

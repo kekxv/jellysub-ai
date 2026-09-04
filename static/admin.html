@@ -318,15 +318,48 @@
                 <button class="btn" onclick="closeLangModal()" style="padding: 0.2rem 0.5rem;">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="tag-selector" id="lang-tags">
-                    <div class="tag-option active" data-value="auto">自动检测</div>
-                    <div class="tag-option" data-value="zh">中文</div>
-                    <div class="tag-option" data-value="en">English</div>
-                    <div class="tag-option" data-value="ja">日本語</div>
-                    <div class="tag-option" data-value="ko">한국어</div>
-                    <div class="tag-option" data-value="yue">粤语</div>
+                <div id="asr-lang-group">
+                    <p class="modal-sub-label">语音语言</p>
+                    <div class="tag-selector" id="lang-tags">
+                        <div class="tag-option active" data-value="auto">自动检测</div>
+                        <div class="tag-option" data-value="zh">中文</div>
+                        <div class="tag-option" data-value="en">English</div>
+                        <div class="tag-option" data-value="ja">日本語</div>
+                        <div class="tag-option" data-value="ko">한국어</div>
+                        <div class="tag-option" data-value="yue">粤语</div>
+                    </div>
+                    <input type="hidden" id="asr_language" value="auto">
                 </div>
-                <input type="hidden" id="asr_language" value="auto">
+
+                <p class="modal-sub-label" id="source-type-label">字幕来源</p>
+                <div class="mode-tabs source-type-tabs" id="source-type-seg" style="width:100%;">
+                    <button type="button" class="tab-btn active" data-source="asr">语音识别 (ASR)</button>
+                    <button type="button" class="tab-btn" data-source="subtitle">已有字幕翻译</button>
+                </div>
+
+                <div id="subtitle-source-select" class="form-group" style="display:none; margin-top:0.75rem;">
+                    <label for="subtitle-source-selector">选择要翻译的字幕</label>
+                    <select id="subtitle-source-selector" style="width:100%;"></select>
+                    <p id="subtitle-source-hint" class="form-hint"></p>
+                </div>
+
+                <div id="subtitle-lang-select" class="form-group" style="display:none; margin-top:0.75rem;">
+                    <label for="subtitle-lang-selector">源语言（字幕语言）</label>
+                    <select id="subtitle-lang-selector" style="width:100%;">
+                        <option value="auto">自动检测</option>
+                        <option value="en">English</option>
+                        <option value="zh">中文</option>
+                        <option value="ja">日本語</option>
+                        <option value="ko">한국어</option>
+                        <option value="fr">Français</option>
+                        <option value="de">Deutsch</option>
+                        <option value="es">Español</option>
+                        <option value="it">Italiano</option>
+                        <option value="pt">Português</option>
+                        <option value="ru">Русский</option>
+                        <option value="ar">العربية</option>
+                    </select>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn" onclick="closeLangModal()">取消</button>
@@ -853,11 +886,45 @@
             listBody.innerHTML = html;
         }
 
-        async function genSub(path, force = false, asrLanguage = 'auto') {
+        function getSourceLang() {
+            const el = document.getElementById('subtitle-lang-selector');
+            return el ? el.value : 'auto';
+        }
+
+        async function detectSubtitleLang() {
+            // 读取当前选中的字幕来源，若为外部字幕文件则调用后端识别语言并预填源语言
+            if (pendingBatch) return;
+            const sel = document.getElementById('subtitle-source-selector');
+            const idx = parseInt(sel.value, 10);
+            const src = pendingGenSubtitleSources[idx];
+            if (!src || src.kind !== 'external') return;
+            try {
+                const resp = await fetch(`/api/videos/subtitle/detect?path=${encodeURIComponent(src.path)}`);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const langEl = document.getElementById('subtitle-lang-selector');
+                if (data.lang && [...langEl.options].some(o => o.value === data.lang)) {
+                    langEl.value = data.lang;
+                }
+            } catch (_) { /* ignore network errors */ }
+        }
+
+        async function genSub(path, force = false, asrLanguage = 'auto', sourceType = 'asr') {
+            const body = { video_path: path, force: force, asr_language: asrLanguage, source_type: sourceType };
+            if (sourceType === 'subtitle') {
+                const sel = document.getElementById('subtitle-source-selector');
+                const idx = parseInt(sel.value, 10);
+                const src = pendingGenSubtitleSources[idx];
+                if (src) {
+                    if (src.kind === 'external') body.subtitle_path = src.path;
+                    else body.subtitle_index = src.index;
+                }
+                body.source_lang = getSourceLang();
+            }
             const resp = await fetch('/api/videos/subtitle', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ video_path: path, force: force, asr_language: asrLanguage })
+                body: JSON.stringify(body)
             });
             const data = await resp.json();
 
@@ -868,7 +935,7 @@
 
             if (data.status === 'exists') {
                 if (confirm(`检测到已有字幕 (${data.reason})，是否覆盖生成？`)) {
-                    return genSub(path, true, asrLanguage);
+                    return genSub(path, true, asrLanguage, sourceType);
                 }
                 return;
             }
@@ -879,6 +946,73 @@
         let pendingGenPath = '';
         let pendingGenForce = false;
         let pendingBatch = false;
+        let pendingGenSubtitleSources = [];
+
+        function getSourceType() {
+            const active = document.querySelector('#source-type-seg .tab-btn.active');
+            return active ? active.dataset.source : 'asr';
+        }
+
+        function setSourceType(type) {
+            document.querySelectorAll('#source-type-seg .tab-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.source === type);
+            });
+            const isSub = type === 'subtitle';
+            const wrap = document.getElementById('subtitle-source-select');
+            const hint = document.getElementById('subtitle-source-hint');
+            const langWrap = document.getElementById('subtitle-lang-select');
+            // 字幕源模式下隐藏无关的「语音语言」选择
+            document.getElementById('asr-lang-group').style.display = isSub ? 'none' : '';
+            if (isSub) {
+                if (pendingBatch) {
+                    wrap.style.display = 'none';
+                    langWrap.style.display = 'none';
+                    hint.textContent = '批量模式：每个视频自动选用已有字幕翻译，无字幕的视频回退为语音识别。';
+                } else if (pendingGenSubtitleSources.length) {
+                    wrap.style.display = '';
+                    langWrap.style.display = '';
+                    hint.textContent = '';
+                } else {
+                    wrap.style.display = 'none';
+                    langWrap.style.display = 'none';
+                    hint.textContent = '未检测到可用字幕来源，仅支持语音识别。';
+                }
+            } else {
+                wrap.style.display = 'none';
+                langWrap.style.display = 'none';
+            }
+        }
+
+        async function loadSubtitleSources(path) {
+            const sel = document.getElementById('subtitle-source-selector');
+            const hint = document.getElementById('subtitle-source-hint');
+            const subBtn = document.querySelector('#source-type-seg .tab-btn[data-source="subtitle"]');
+            sel.innerHTML = '';
+            pendingGenSubtitleSources = [];
+            document.getElementById('subtitle-lang-selector').value = 'auto';
+            subBtn.classList.add('disabled');
+            try {
+                const resp = await fetch(`/api/videos/subtitle/sources?path=${encodeURIComponent(path)}`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    pendingGenSubtitleSources = data.sources || [];
+                }
+            } catch (_) { /* ignore network errors */ }
+
+            if (!pendingGenSubtitleSources.length) {
+                hint.textContent = '未检测到可用字幕来源，仅支持语音识别。';
+                return;
+            }
+            subBtn.classList.remove('disabled');
+            sel.onchange = () => detectSubtitleLang();
+            pendingGenSubtitleSources.forEach((s, i) => {
+                const option = document.createElement('option');
+                option.value = String(i);
+                option.textContent = s.display;
+                sel.appendChild(option);
+            });
+            detectSubtitleLang();
+        }
 
         function promptGen(path, force = false) {
             pendingGenPath = path;
@@ -888,15 +1022,22 @@
             document.querySelectorAll('#lang-tags .tag-option').forEach(t => {
                 t.classList.toggle('active', t.dataset.value === 'auto');
             });
+            setSourceType('asr');
+            document.getElementById('subtitle-lang-selector').value = 'auto';
+            loadSubtitleSources(path);
             document.getElementById('lang-modal').style.display = 'flex';
         }
 
         function promptBatchGen() {
             pendingBatch = true;
+            pendingGenSubtitleSources = [];
             document.getElementById('asr_language').value = 'auto';
             document.querySelectorAll('#lang-tags .tag-option').forEach(t => {
                 t.classList.toggle('active', t.dataset.value === 'auto');
             });
+            document.querySelector('#source-type-seg .tab-btn[data-source="subtitle"]').classList.remove('disabled');
+            document.getElementById('subtitle-lang-selector').value = 'auto';
+            setSourceType('asr');
             document.getElementById('lang-modal').style.display = 'flex';
         }
 
@@ -906,11 +1047,12 @@
 
         document.getElementById('lang-confirm-btn').onclick = async () => {
             const lang = document.getElementById('asr_language').value;
+            const srcType = getSourceType();
             closeLangModal();
             if (pendingBatch) {
-                return batchGenSub(false, lang);
+                return batchGenSub(false, lang, srcType);
             }
-            return genSub(pendingGenPath, pendingGenForce, lang);
+            return genSub(pendingGenPath, pendingGenForce, lang, srcType);
         };
 
         document.querySelectorAll('#lang-tags .tag-option').forEach(opt => {
@@ -921,10 +1063,17 @@
             };
         });
 
+        document.querySelectorAll('#source-type-seg .tab-btn').forEach(btn => {
+            btn.onclick = () => {
+                if (btn.classList.contains('disabled')) return;
+                setSourceType(btn.dataset.source);
+            };
+        });
+
         let taskOffset = 0, taskFilterStatus = '';
         const STAGE_LABELS = {
             pending: '等待队列', extracting_audio: '提取音频', asr: '语音识别',
-            translating: '翻译字幕', writing_srt: '写入字幕', done: '已完成', failed: '处理失败'
+            reading_subtitle: '读取字幕', translating: '翻译字幕', writing_srt: '写入字幕', done: '已完成', failed: '处理失败'
         };
 
         function stageLabel(stage) { return STAGE_LABELS[stage] || '准备中'; }
@@ -1070,12 +1219,12 @@
             document.getElementById('batch-gen-btn').style.display = selectedVideos.size ? '' : 'none';
         }
 
-        async function batchGenSub(force = false, asrLanguage = 'auto') {
+        async function batchGenSub(force = false, asrLanguage = 'auto', sourceType = 'asr', sourceLang = 'auto') {
             if (!selectedVideos.size) return;
             const resp = await fetch('/api/videos/subtitle/batch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ video_paths: [...selectedVideos], force: force, asr_language: asrLanguage })
+                body: JSON.stringify({ video_paths: [...selectedVideos], force: force, asr_language: asrLanguage, source_type: sourceType, source_lang: sourceLang })
             });
             const data = await resp.json();
 
@@ -1087,11 +1236,11 @@
             if (data.status === 'exists') {
                 const count = data.existing.length;
                 if (confirm(`选中的视频中有 ${count} 个已存在字幕，是否全部覆盖生成？\n(取消则仅为没有字幕的视频生成)`)) {
-                    return batchGenSub(true, asrLanguage);
+                    return batchGenSub(true, asrLanguage, sourceType, sourceLang);
                 } else {
                     if (data.clean_paths && data.clean_paths.length > 0) {
                         selectedVideos = new Set(data.clean_paths);
-                        return batchGenSub(true, asrLanguage);
+                        return batchGenSub(true, asrLanguage, sourceType, sourceLang);
                     } else {
                         alert('没有需要处理的视频。');
                         return;

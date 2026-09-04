@@ -16,6 +16,7 @@ logger = logging.getLogger("uvicorn.error")
 _PIPELINE_STAGES = [
     "extracting_audio",
     "asr",
+    "reading_subtitle",
     "translating",
     "writing_srt",
 ]
@@ -23,6 +24,7 @@ _PIPELINE_STAGES = [
 _STAGE_PROGRESS = {
     "extracting_audio": 20,
     "asr": 50,
+    "reading_subtitle": 50,
     "translating": 80,
     "writing_srt": 95,
     "done": 100,
@@ -113,6 +115,10 @@ class TaskManager:
                     source_segments TEXT,
                     translated_segments TEXT,
                     asr_language TEXT DEFAULT 'auto',
+                    source_type TEXT DEFAULT 'asr',
+                    source_path TEXT,
+                    source_index INTEGER,
+                    source_lang TEXT DEFAULT 'auto',
                     started_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -129,6 +135,10 @@ class TaskManager:
                 ("translated_segments", "TEXT"),
                 ("started_at", "TIMESTAMP"),
                 ("asr_language", "TEXT DEFAULT 'auto'"),
+                ("source_type", "TEXT DEFAULT 'asr'"),
+                ("source_path", "TEXT"),
+                ("source_index", "INTEGER"),
+                ("source_lang", "TEXT DEFAULT 'auto'"),
             ]
             for col_name, col_def in columns_to_add:
                 try:
@@ -188,6 +198,10 @@ class TaskManager:
         item_name: str = "",
         pipeline_type: str = "webhook",
         asr_language: str = "auto",
+        source_type: str = "asr",
+        source_path: str = "",
+        source_index: int | None = None,
+        source_lang: str = "auto",
     ) -> int:
         with self._lock:
             conn = self._get_conn()
@@ -195,9 +209,11 @@ class TaskManager:
                 cur = conn.cursor()
                 cur.execute(
                     """INSERT INTO tasks
-                       (video_path, item_id, item_type, item_name, pipeline_type, asr_language, status, stage)
-                       VALUES (?, ?, ?, ?, ?, ?, 'pending', 'pending')""",
-                    (video_path, item_id, item_type, item_name, pipeline_type, asr_language),
+                       (video_path, item_id, item_type, item_name, pipeline_type, asr_language,
+                        source_type, source_path, source_index, source_lang, status, stage)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending')""",
+                    (video_path, item_id, item_type, item_name, pipeline_type, asr_language,
+                     source_type, source_path, source_index, source_lang),
                 )
                 task_id = cur.lastrowid
                 conn.commit()
@@ -206,7 +222,7 @@ class TaskManager:
                 raise
             finally:
                 conn.close()
-        logger.info("Task %d created: %s (%s)", task_id, video_path, pipeline_type)
+        logger.info("Task %d created: %s (%s, source=%s)", task_id, video_path, pipeline_type, source_type)
         return task_id
 
     def create_task_if_no_active(
@@ -217,6 +233,10 @@ class TaskManager:
         item_name: str = "",
         pipeline_type: str = "webhook",
         asr_language: str = "auto",
+        source_type: str = "asr",
+        source_path: str = "",
+        source_index: int | None = None,
+        source_lang: str = "auto",
     ) -> int | None:
         """Atomically create a pending task, or return None when one is active."""
         try:
@@ -227,6 +247,10 @@ class TaskManager:
                 item_name=item_name,
                 pipeline_type=pipeline_type,
                 asr_language=asr_language,
+                source_type=source_type,
+                source_path=source_path,
+                source_index=source_index,
+                source_lang=source_lang,
             )
         except sqlite3.IntegrityError as exc:
             if "UNIQUE constraint failed: tasks.video_path" not in str(exc):
@@ -377,6 +401,8 @@ class TaskManager:
         video_paths: list[str],
         pipeline_type: str = "video_subtitle",
         asr_language: str = "auto",
+        source_type: str = "asr",
+        source_lang: str = "auto",
     ) -> tuple[list[int], int]:
         """批量创建字幕任务，跳过已有 pending/processing 状态的视频。
         返回 (创建的任务 ID 列表, 跳过的数量)。
@@ -388,6 +414,10 @@ class TaskManager:
                 video_path=path,
                 pipeline_type=pipeline_type,
                 asr_language=asr_language,
+                source_type=source_type,
+                source_path="",
+                source_index=None,  # 批量模式让 worker 自动选择来源
+                source_lang=source_lang,
             )
             if task_id is None:
                 skipped += 1
@@ -497,35 +527,76 @@ class TaskManager:
         self._update_task(task_id, status="processing", started_at=time.strftime("%Y-%m-%d %H:%M:%S"))
 
         try:
-            # --- Stage 1: Extract audio ---
-            self._update_task(task_id, stage="extracting_audio", progress=_STAGE_PROGRESS["extracting_audio"])
-            self._record_stage(task_id, "extracting_audio")
+            source_type = task.get("source_type") or "asr"
+            resolved_src_path = None
 
-            import asyncio
-            from core.audio import extract_audio
-            from core.utils import check_memory_limit
-
-            check_memory_limit()
-            ok = asyncio.new_event_loop().run_until_complete(
-                extract_audio(video_path, audio_path, normalize=cfg.audio_normalize)
-            )
-            if not ok:
-                raise RuntimeError("Audio extraction failed")
-
-            # --- Stage 2: ASR ---
-            # 重试时检查是否已有 ASR 结果，跳过耗时的 ASR 步骤
+            # --- 取得源字幕片段（字幕源 或 ASR） ---
+            # 重试时优先复用已保存的片段，跳过耗时的提取/识别步骤
             segments = None
             detected_lang = ""
             if task.get("source_segments"):
-                import json as _json
-                segments = _json.loads(task["source_segments"])
+                segments = json.loads(task["source_segments"])
                 if not segments:
-                    logger.info("Task %d: previous ASR found no speech, skipping", task_id)
+                    logger.info("Task %d: previous source had no segments, skipping", task_id)
                     self._update_task(task_id, stage="done", progress=100, status="done")
                     self._record_stage(task_id, "done")
                     return
-                logger.info("Task %d: ASR result already exists, skipping ASR (%d segments)", task_id, len(segments))
+                logger.info("Task %d: source segments already exist, skipping re-extraction (%d segments)", task_id, len(segments))
+            elif source_type == "subtitle":
+                # --- 字幕源：从已有字幕/内置字幕流解析片段 ---
+                self._update_task(task_id, stage="reading_subtitle", progress=_STAGE_PROGRESS["reading_subtitle"])
+                self._record_stage(task_id, "reading_subtitle")
+
+                import asyncio
+                from core.subtitle_source import resolve_subtitle_source, read_subtitle_segments
+
+                loop = asyncio.new_event_loop()
+                try:
+                    resolved = loop.run_until_complete(
+                        resolve_subtitle_source(
+                            video_path,
+                            source_path=task.get("source_path") or None,
+                            source_index=task.get("source_index"),
+                            work_dir=str(tmp_dir),
+                        )
+                    )
+                finally:
+                    loop.close()
+                # 内部流是被抽取到 tmp 的临时文件，需在结束时清理；外部文件不清理
+                if resolved["kind"] == "internal":
+                    resolved_src_path = resolved["path"]
+                logger.info("Task %d: translating from subtitle source: %s", task_id, resolved["display"])
+                segments = read_subtitle_segments(resolved["path"])
+                if not segments:
+                    raise RuntimeError("No subtitle segments could be parsed from the chosen source")
+
+                # 确定源语言：用户显式选择优先，否则对字幕内容做自动识别
+                chosen_lang = (task.get("source_lang") or "auto").strip()
+                if chosen_lang and chosen_lang != "auto":
+                    detected_lang = chosen_lang
+                else:
+                    from core.lang_detect import detect_language
+                    combined_text = "\n".join(seg["text"] for seg in segments)
+                    detected_lang = detect_language(combined_text, hint=resolved.get("lang", "") or "")
+                logger.info("Task %d: subtitle source lang=%s", task_id, detected_lang or "unknown")
+                self.set_source_segments(task_id, segments)
             else:
+                # --- Stage 1: Extract audio ---
+                self._update_task(task_id, stage="extracting_audio", progress=_STAGE_PROGRESS["extracting_audio"])
+                self._record_stage(task_id, "extracting_audio")
+
+                import asyncio
+                from core.audio import extract_audio
+                from core.utils import check_memory_limit
+
+                check_memory_limit()
+                ok = asyncio.new_event_loop().run_until_complete(
+                    extract_audio(video_path, audio_path, normalize=cfg.audio_normalize)
+                )
+                if not ok:
+                    raise RuntimeError("Audio extraction failed")
+
+                # --- Stage 2: ASR ---
                 self._update_task(task_id, stage="asr", progress=_STAGE_PROGRESS["asr"])
                 from core.asr import run_asr, set_asr_busy
                 from core.utils import check_memory_limit
@@ -652,6 +723,11 @@ class TaskManager:
 
         finally:
             _cleanup_tmp_files(tmp_dir, audio_path)
+            if resolved_src_path and Path(resolved_src_path).is_file():
+                try:
+                    Path(resolved_src_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
             # 检查模型空闲超时并释放，降低长时运行内存压力
             if cfg := get_config():
                 from env_config import MODEL_IDLE_TIMEOUT

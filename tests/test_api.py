@@ -437,3 +437,127 @@ def test_login_redirect_when_authenticated():
     resp = client.get("/login", follow_redirects=False)
     assert resp.status_code == 302
     assert resp.headers["location"] == "/admin"
+
+
+# --------------------------------------------------------------------------- #
+#  从已有字幕翻译（subtitle source）
+# --------------------------------------------------------------------------- #
+
+def _mk_video_with_subtitle(tmp_path, name="episode.mkv", with_srt=True):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir(exist_ok=True)
+    video = video_dir / name
+    video.touch()
+    if with_srt:
+        (video_dir / f"{video.stem}.en.srt").write_text(
+            "1\n00:00:01,000 --> 00:00:02,000\nHello\n", encoding="utf-8"
+        )
+    return video_dir, video
+
+
+def test_subtitle_sources_endpoint_returns_external_candidates(client, reset_config, tmp_path, monkeypatch):
+    """GET /api/videos/subtitle/sources 返回外部字幕候选。"""
+    video_dir, video = _mk_video_with_subtitle(tmp_path)
+    reset_config.video_dirs = [str(video_dir)]
+    monkeypatch.setattr("main.task_manager", TaskManager(str(tmp_path / "tasks.db")))
+    _authenticated_client(client)
+
+    resp = client.get(f"/api/videos/subtitle/sources?path={video}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["video"] == str(video)
+    assert any(s["kind"] == "external" and s["path"].endswith("episode.en.srt") for s in data["sources"])
+
+
+def test_generate_subtitle_with_subtitle_source_creates_task(client, reset_config, tmp_path, monkeypatch):
+    """source_type=subtitle 时用外部字幕文件创建任务，不触发已有字幕跳过。"""
+    video_dir, video = _mk_video_with_subtitle(tmp_path)
+    srt = video_dir / "episode.en.srt"
+    reset_config.video_dirs = [str(video_dir)]
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    monkeypatch.setattr("main.task_manager", manager)
+    _authenticated_client(client)
+
+    resp = client.post("/api/videos/subtitle", json={
+        "video_path": str(video),
+        "source_type": "subtitle",
+        "subtitle_path": str(srt),
+    })
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "started"
+    task = manager.get_task(resp.json()["task_id"])
+    assert task["source_type"] == "subtitle"
+    assert task["source_path"] == str(srt)
+
+
+def test_generate_subtitle_subtitle_source_no_sources_returns_400(client, reset_config, tmp_path, monkeypatch):
+    """选择字幕翻译但视频无任何字幕来源时返回 400。"""
+    video_dir, video = _mk_video_with_subtitle(tmp_path, with_srt=False)
+    reset_config.video_dirs = [str(video_dir)]
+    monkeypatch.setattr("main.task_manager", TaskManager(str(tmp_path / "tasks.db")))
+    _authenticated_client(client)
+
+    resp = client.post("/api/videos/subtitle", json={
+        "video_path": str(video),
+        "source_type": "subtitle",
+    })
+    assert resp.status_code == 400
+    assert "No usable subtitle source" in resp.json()["detail"]
+
+
+def test_batch_subtitle_source_falls_back_to_asr(client, reset_config, tmp_path, monkeypatch):
+    """批量字幕翻译：有字幕的视频走字幕源，无字幕的视频回退到 ASR。"""
+    video_dir, v1 = _mk_video_with_subtitle(tmp_path, name="a.mkv", with_srt=True)
+    _, v2 = _mk_video_with_subtitle(tmp_path, name="b.mkv", with_srt=False)
+    reset_config.video_dirs = [str(video_dir)]
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    monkeypatch.setattr("main.task_manager", manager)
+    _authenticated_client(client)
+
+    resp = client.post("/api/videos/subtitle/batch", json={
+        "video_paths": [str(v1), str(v2)],
+        "source_type": "subtitle",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "started"
+    assert len(resp.json()["task_ids"]) == 2
+
+    tasks = {t["video_path"]: t for t in manager.list_tasks(limit=10)}
+    assert tasks[str(v1)]["source_type"] == "subtitle"
+    assert tasks[str(v2)]["source_type"] == "asr"
+
+
+def test_detect_subtitle_lang_endpoint(client, reset_config, tmp_path, monkeypatch):
+    """GET /api/videos/subtitle/detect 识别字幕文件语言。"""
+    video_dir, video = _mk_video_with_subtitle(tmp_path)
+    srt = video_dir / "episode.en.srt"
+    srt.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nThis is the first subtitle line.\n", encoding="utf-8"
+    )
+    reset_config.video_dirs = [str(video_dir)]
+    monkeypatch.setattr("main.task_manager", TaskManager(str(tmp_path / "tasks.db")))
+    _authenticated_client(client)
+
+    resp = client.get(f"/api/videos/subtitle/detect?path={srt}")
+    assert resp.status_code == 200
+    assert resp.json()["lang"] == "en"
+
+
+def test_generate_subtitle_stores_source_lang(client, reset_config, tmp_path, monkeypatch):
+    """source_type=subtitle 时把用户选择的源语言存入任务。"""
+    video_dir, video = _mk_video_with_subtitle(tmp_path)
+    srt = video_dir / "episode.en.srt"
+    reset_config.video_dirs = [str(video_dir)]
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    monkeypatch.setattr("main.task_manager", manager)
+    _authenticated_client(client)
+
+    resp = client.post("/api/videos/subtitle", json={
+        "video_path": str(video),
+        "source_type": "subtitle",
+        "subtitle_path": str(srt),
+        "source_lang": "fr",
+    })
+    assert resp.status_code == 200
+    task = manager.get_task(resp.json()["task_id"])
+    assert task["source_lang"] == "fr"

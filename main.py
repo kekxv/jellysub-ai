@@ -23,6 +23,7 @@ import pyotp
 from config import AppConfig, get_config, load_config, save_config
 from core.task_manager import TaskManager
 from core.audio import has_internal_subtitle
+from core.subtitle_source import find_external_subtitles
 from env_config import (
     ADMIN_USERNAME,
     ADMIN_PASSWORD,
@@ -569,6 +570,7 @@ def _scan_videos(dirs: list[str], max_depth: int = 5) -> list[dict]:
                         "size": fpath.stat().st_size,
                         "has_subtitle": _has_chinese_subtitle(fpath),
                         "processing": str(fpath) in processing_paths,
+                        "subtitles": find_external_subtitles(str(fpath)),
                     })
     videos.sort(key=lambda v: v["path"])
     return videos
@@ -599,12 +601,18 @@ class SubtitleJobRequest(BaseModel):
     video_path: str
     force: bool = False
     asr_language: str = "auto"
+    source_type: str = "asr"          # "asr" | "subtitle"
+    subtitle_path: str = ""            # 外部字幕文件绝对路径（source_type=subtitle 时用）
+    subtitle_index: int | None = None  # 内置字幕流索引（source_type=subtitle 时用）
+    source_lang: str = "auto"          # 源语言（source_type=subtitle 时用，auto=自动识别）
 
 
 class BatchSubtitleRequest(BaseModel):
     video_paths: list[str] = Field(default_factory=list, max_length=100)
     force: bool = False
     asr_language: str = "auto"
+    source_type: str = "asr"          # "asr" | "subtitle"
+    source_lang: str = "auto"          # 源语言（source_type=subtitle 时用）
 
 
 def _ensure_subtitle_output_writable(video_path: str) -> None:
@@ -628,7 +636,11 @@ def _ensure_subtitle_output_writable(video_path: str) -> None:
 
 @app.post("/api/videos/subtitle")
 async def api_generate_subtitle(body: SubtitleJobRequest, request: Request):
-    """开始生成字幕。"""
+    """开始生成字幕。
+
+    source_type 为 "subtitle" 时，从已有字幕/内置字幕流翻译（不做 ASR）；
+    否则沿用 ASR 识别流程。force 仅对 ASR 模式生效（覆盖已有字幕检查）。
+    """
     _require_auth(request)
     video_path = body.video_path
     _validate_video_path(video_path)
@@ -639,19 +651,41 @@ async def api_generate_subtitle(body: SubtitleJobRequest, request: Request):
     if task and task["status"] in ("pending", "processing"):
         return {"status": "already_running"}
 
-    # --- 自动检查：已有字幕或内置字幕 ---
-    if not body.force:
-        from core.subtitle_checker import has_any_subtitle
+    source_type = body.source_type or "asr"
+    source_path = body.subtitle_path or ""
+    source_index = body.subtitle_index
+
+    if source_type == "subtitle":
+        # --- 从已有字幕/内置字幕流翻译：不做 ASR，也不跳过 ---
         cfg = get_config()
-        exists, reason = await has_any_subtitle(video_path, cfg.target_language)
-        if exists:
-            logger.info("Manual task detection: subtitle exists (%s), path=%s", reason, video_path)
-            return {"status": "exists", "reason": reason}
+        from core.subtitle_source import find_external_subtitles, list_internal_subtitle_streams
+
+        # 校验用户指定的外部字幕文件存在
+        if source_path and not Path(source_path).is_file():
+            raise HTTPException(status_code=400, detail=f"Subtitle file not found: {source_path}")
+        # 校验确实存在可用字幕来源
+        has_ext = bool(find_external_subtitles(video_path))
+        has_internal = bool(await list_internal_subtitle_streams(video_path))
+        if not (has_ext or has_internal):
+            raise HTTPException(status_code=400, detail="No usable subtitle source found for this video, use ASR mode")
+    else:
+        # --- 自动检查：已有字幕或内置字幕 ---
+        if not body.force:
+            from core.subtitle_checker import has_any_subtitle
+            cfg = get_config()
+            exists, reason = await has_any_subtitle(video_path, cfg.target_language)
+            if exists:
+                logger.info("Manual task detection: subtitle exists (%s), path=%s", reason, video_path)
+                return {"status": "exists", "reason": reason}
 
     task_id = task_manager.create_task_if_no_active(
         video_path=video_path,
         pipeline_type="video_subtitle",
         asr_language=body.asr_language,
+        source_type=source_type,
+        source_path=source_path,
+        source_index=source_index,
+        source_lang=body.source_lang or "auto",
     )
     if task_id is None:
         return {"status": "already_running"}
@@ -660,7 +694,11 @@ async def api_generate_subtitle(body: SubtitleJobRequest, request: Request):
 
 @app.post("/api/videos/subtitle/batch")
 async def api_batch_generate_subtitle(body: BatchSubtitleRequest, request: Request):
-    """批量生成字幕，跳过已在处理中的视频。"""
+    """批量生成字幕，跳过已在处理中的视频。
+
+    source_type 为 "subtitle" 时，有字幕来源的视频改用现有字幕翻译，
+    无字幕来源的视频自动回退到 ASR 模式。
+    """
     _require_auth(request)
     if not body.video_paths:
         from fastapi import HTTPException
@@ -669,7 +707,46 @@ async def api_batch_generate_subtitle(body: BatchSubtitleRequest, request: Reque
         _validate_video_path(path)
         _ensure_subtitle_output_writable(path)
 
-    # 如果不是强制模式，先筛选出已有字幕的路径
+    source_type = body.source_type or "asr"
+
+    if source_type == "subtitle":
+        # --- 从已有字幕/内置字幕流翻译 ---
+        from core.subtitle_source import find_external_subtitles, list_internal_subtitle_streams
+        subtitle_paths = []
+        asr_paths = []
+        for path in body.video_paths:
+            has_ext = bool(find_external_subtitles(path))
+            has_internal = bool(await list_internal_subtitle_streams(path))
+            if has_ext or has_internal:
+                subtitle_paths.append(path)
+            else:
+                asr_paths.append(path)  # 无字幕来源，回退 ASR
+
+        task_ids = []
+        skipped = 0
+        for path in subtitle_paths:
+            tid = task_manager.create_task_if_no_active(
+                video_path=path, pipeline_type="video_subtitle",
+                asr_language=body.asr_language, source_type="subtitle",
+                source_path="", source_index=None, source_lang=body.source_lang or "auto",
+            )
+            if tid is None:
+                skipped += 1
+            else:
+                task_ids.append(tid)
+        for path in asr_paths:
+            tid = task_manager.create_task_if_no_active(
+                video_path=path, pipeline_type="video_subtitle",
+                asr_language=body.asr_language, source_type="asr",
+                source_lang=body.source_lang or "auto",
+            )
+            if tid is None:
+                skipped += 1
+            else:
+                task_ids.append(tid)
+        return {"status": "started", "task_ids": task_ids, "skipped": skipped}
+
+    # --- ASR 模式：如果不是强制模式，先筛选出已有字幕的路径 ---
     if not body.force:
         from core.subtitle_checker import has_any_subtitle
         cfg = get_config()
@@ -695,40 +772,29 @@ async def api_batch_generate_subtitle(body: BatchSubtitleRequest, request: Reque
     return {"status": "started", "task_ids": task_ids, "skipped": skipped}
 
 
-def _parse_srt(filepath: str) -> list[dict]:
-    """将 SRT 文件解析为 segments 列表，每个元素含 start/end/time 和 text。"""
-    segments = []
-    try:
-        text = Path(filepath).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
-    blocks = text.strip().split("\n\n")
-    for block in blocks:
-        lines = block.strip().split("\n")
-        if len(lines) < 3:
-            continue
-        # Try to find timecode line
-        for i, line in enumerate(lines):
-            if "-->" in line:
-                try:
-                    start_str, end_str = line.split("-->")
-                    segments.append({
-                        "start": _srt_to_seconds(start_str.strip()),
-                        "end": _srt_to_seconds(end_str.strip()),
-                        "text": "\n".join(lines[i + 1:]).strip(),
-                    })
-                except (ValueError, IndexError):
-                    pass
-                break
-    return segments
+@app.get("/api/videos/subtitle/sources")
+async def api_list_subtitle_sources(request: Request, path: str):
+    """返回指定视频可用的字幕来源（外部字幕文件 + 内置字幕流），供前端选择。"""
+    _require_auth(request)
+    _validate_video_path(path)
+    from core.subtitle_source import get_subtitle_sources
+    sources = await get_subtitle_sources(path)
+    return {"video": path, "sources": sources}
 
 
-def _srt_to_seconds(srt_time: str) -> float:
-    """将 SRT 时间格式 '00:00:01,000' 或 '00:00:01.000' 转为秒数。"""
-    srt_time = srt_time.replace(".", ",")
-    h, m, rest = srt_time.split(":")
-    s, ms = rest.split(",")
-    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+@app.get("/api/videos/subtitle/detect")
+async def api_detect_subtitle_lang(request: Request, path: str):
+    """识别某个字幕文件的语言，供「从已有字幕翻译」时预填源语言。"""
+    _require_auth(request)
+    _validate_video_path(path)
+    from core.subtitle_parse import parse_subtitle_file
+    from core.lang_detect import detect_language
+
+    segments = parse_subtitle_file(path)
+    if not segments:
+        return {"lang": ""}
+    text = "\n".join(seg.get("text", "") for seg in segments)
+    return {"lang": detect_language(text)}
 
 
 @app.get("/api/videos/subtitle/status")
@@ -747,13 +813,14 @@ async def api_subtitle_status(request: Request, path: str):
             "translated": json.loads(task["translated_segments"]) if task.get("translated_segments") else [],
         }
 
-    # Fallback: 从磁盘读取 .srt 文件
+    # Fallback: 从磁盘读取字幕文件
     from pathlib import Path as _Path
     from core.subtitle_checker import find_existing_subtitle
+    from core.subtitle_parse import parse_subtitle_file
     vpath = _Path(path)
     existing = find_existing_subtitle(str(vpath.parent), vpath.stem)
     if existing:
-        segments = _parse_srt(existing)
+        segments = parse_subtitle_file(existing)
         if segments:
             return {
                 "running": False,
