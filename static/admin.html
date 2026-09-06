@@ -230,6 +230,10 @@
                                     <div class="form-group"><label>翻译 API 地址</label><input type="url" id="translate_api_url"></div>
                                     <div class="form-group"><label>翻译 API Key</label><input type="password" id="translate_api_key"></div>
                                     <div class="form-group"><label>翻译模型名称</label><input type="text" id="translate_model"></div>
+                                    <div class="form-group">
+                                        <button type="button" class="btn" id="translate-test-btn" onclick="testOnlineTranslation()">测试在线翻译</button>
+                                        <div id="translate-test-result" role="status" aria-live="polite" style="margin-top:0.5rem; font-size:0.8rem;"></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -458,6 +462,52 @@
         });
 
         // Initialize Translate Mode Tag Selector (if any)
+
+        async function testOnlineTranslation() {
+            const button = document.getElementById('translate-test-btn');
+            const result = document.getElementById('translate-test-result');
+            const apiUrl = document.getElementById('translate_api_url').value.trim();
+            const apiKey = document.getElementById('translate_api_key').value;
+            const model = document.getElementById('translate_model').value.trim();
+            const targetLanguage = document.getElementById('target_language').value;
+
+            if (!apiUrl) {
+                result.textContent = '请输入翻译 API 地址后再测试。';
+                result.style.color = 'var(--red)';
+                return;
+            }
+
+            button.disabled = true;
+            button.textContent = '测试中...';
+            result.textContent = '正在请求翻译服务...';
+            result.style.color = 'var(--text-muted)';
+            try {
+                const response = await fetch('/api/test/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        api_url: apiUrl,
+                        api_key: apiKey,
+                        model,
+                        target_language: targetLanguage,
+                    }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || '翻译服务测试失败');
+                }
+                result.innerHTML = data.results.map(item =>
+                    `<div><strong>${escHtml(item.original)}</strong> → ${escHtml(item.translated)}</div>`
+                ).join('');
+                result.style.color = 'var(--green)';
+            } catch (error) {
+                result.textContent = `测试失败：${error.message || '无法连接翻译服务'}`;
+                result.style.color = 'var(--red)';
+            } finally {
+                button.disabled = false;
+                button.textContent = '测试在线翻译';
+            }
+        }
 
         async function loadConfig() {
             try {

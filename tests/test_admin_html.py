@@ -200,3 +200,13 @@ def test_admin_batch_subtitle_request_shows_an_api_write_error():
         "messages": ["Subtitle output directory is not writable"],
         "refreshes": 0,
     }
+
+
+def test_admin_online_translation_settings_include_a_test_control_and_result_panel():
+    """Online translation settings expose a test action with visible feedback."""
+    html = _admin_html()
+
+    assert 'id="translate-test-btn"' in html
+    assert 'id="translate-test-result"' in html
+    assert "async function testOnlineTranslation()" in html
+    assert "'/api/test/translate'" in html

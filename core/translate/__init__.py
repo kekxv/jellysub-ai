@@ -169,10 +169,9 @@ async def translate_segments(
                 )
                 failed_indices.extend(indices)
 
-    # 用原文填充仍失败的索引
-    for i in failed_indices:
-        if translated_texts[i] is None:
-            translated_texts[i] = all_texts[i]
+    if failed_indices:
+        logger.error("Translation failed for %d subtitle segments", len(failed_indices))
+        return None
 
     result = []
     for seg, translated_text in zip(segments, translated_texts):
@@ -193,6 +192,10 @@ async def translate_segments(
         orig = seg["text"].strip()
         trans = translated.strip()
 
+        # 源文本本身只有标点，不属于需要翻译的内容。
+        if _ONLY_PUNCT.match(orig):
+            continue
+
         # 翻译结果只有标点（说明模型没翻译出内容），需要重试
         if _ONLY_PUNCT.match(trans):
             retry_indices.append(i)
@@ -210,6 +213,7 @@ async def translate_segments(
         retry_texts = [segments[i]["text"] for i in retry_indices]
         retry_translated = engine.translate_batch(retry_texts, target_lang, engine_format, thinking,
                                                    context=_build_context(retry_indices), source_lang=source_lang)
+        retry_failed = []
         if retry_translated and len(retry_translated) == len(retry_texts):
             for idx, new_text in zip(retry_indices, retry_translated):
                 new_stripped = new_text.strip()
@@ -220,8 +224,14 @@ async def translate_segments(
                     logger.info("Retry fixed index %d: %s -> %s",
                                 idx, orig[:40], new_stripped[:40])
                 else:
-                    logger.info("Retry index %d still untranslated, keeping original", idx)
+                    retry_failed.append(idx)
+                    logger.warning("Retry index %d still untranslated", idx)
         else:
-            logger.warning("Retry for untranslated also failed, keeping originals")
+            retry_failed = retry_indices
+            logger.warning("Retry for untranslated also failed")
+
+        if retry_failed:
+            logger.error("Translation output remained invalid for %d subtitle segments", len(retry_failed))
+            return None
 
     return result

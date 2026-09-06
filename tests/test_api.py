@@ -8,7 +8,7 @@ import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -181,6 +181,38 @@ def test_put_config_does_not_preload_models_when_disabled(client, monkeypatch):
     response = client.put("/api/config", json=cfg)
     assert response.status_code == 200
     preload.assert_not_called()
+
+
+def test_online_translation_test_uses_request_configuration(client, monkeypatch):
+    """The Settings test must use the values currently in the form, before save."""
+    translate = AsyncMock(return_value=[{"start": 0, "end": 2, "text": "你好"}])
+    monkeypatch.setattr("core.translate.translate_segments", translate)
+    _authenticated_client(client)
+
+    response = client.post("/api/test/translate", json={
+        "api_url": "https://example.test/v1",
+        "api_key": "test-key",
+        "model": "test-model",
+        "texts": ["Hello"],
+    })
+
+    assert response.status_code == 200
+    assert translate.await_args.kwargs["api_url"] == "https://example.test/v1"
+    assert translate.await_args.kwargs["api_key"] == "test-key"
+    assert translate.await_args.kwargs["model"] == "test-model"
+    assert translate.await_args.kwargs["mode"] == "online"
+    assert response.json() == {"results": [{"original": "Hello", "translated": "你好"}]}
+
+
+def test_online_translation_test_returns_error_for_failed_translation(client, monkeypatch):
+    """A failed test must return an actionable HTTP error instead of a server crash."""
+    monkeypatch.setattr("core.translate.translate_segments", AsyncMock(return_value=None))
+    _authenticated_client(client)
+
+    response = client.post("/api/test/translate", json={"api_url": "https://example.test/v1"})
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Translation test failed"}
 
 
 def _signed_webhook(client: TestClient, payload: dict, signature_body: bytes | None = None):
