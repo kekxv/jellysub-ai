@@ -51,9 +51,6 @@ def _translate_batch_online(
             "temperature": 0.3,
             "max_tokens": 1024,
         }
-        if not thinking:
-            kwargs["extra_body"] = {"thinking": False}
-
         resp = client.chat.completions.create(**kwargs)
         content = resp.choices[0].message.content.strip()
 
