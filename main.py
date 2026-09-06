@@ -439,7 +439,11 @@ async def api_batch_delete_tasks(body: BatchDeleteRequest, request: Request):
 # --- 测试 API（需认证）---
 
 class TestTranslationRequest(BaseModel):
-    texts: list[str] = []
+    texts: list[str] = Field(default_factory=list)
+    api_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    target_language: str = ""
 
 
 @app.post("/api/test/translate")
@@ -450,20 +454,26 @@ async def api_test_translate(body: TestTranslationRequest, request: Request):
         body.texts = ["Hello world", "This is a test subtitle", "How are you doing today"]
 
     cfg = get_config()
+    api_url = body.api_url.strip() or cfg.translate_api_url
+    api_key = body.api_key or cfg.translate_api_key
+    model = body.model.strip() or cfg.translate_model
+    target_language = body.target_language.strip() or cfg.target_language
     segments = [{"start": i * 2.0, "end": (i + 1) * 2.0, "text": t} for i, t in enumerate(body.texts)]
 
     from core.translate import translate_segments
     translated = await translate_segments(
         segments,
-        cfg.target_language,
-        mode=cfg.translate_mode,
-        api_url=cfg.translate_api_url,
-        api_key=cfg.translate_api_key,
-        model=cfg.translate_model,
+        target_language,
+        mode="online" if body.api_url.strip() else cfg.translate_mode,
+        api_url=api_url,
+        api_key=api_key,
+        model=model,
         model_local=cfg.translate_model_local,
         thinking=cfg.translate_thinking,
         prompt_format=cfg.translate_prompt_format,
     )
+    if not translated:
+        raise HTTPException(status_code=502, detail="Translation test failed")
 
     result = []
     for orig, trans in zip(body.texts, translated):

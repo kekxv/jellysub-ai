@@ -2,6 +2,7 @@
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import MagicMock
 
 from config import AppConfig
 from core.task_manager import TaskManager
@@ -132,3 +133,45 @@ def test_pipeline_subtitle_source_uses_explicit_source_lang(tmp_path, monkeypatc
     manager._execute_pipeline(manager.get_task(task_id))
 
     assert translate_source_lang["lang"] == "fr"
+
+
+def test_pipeline_does_not_write_subtitles_after_translation_failure(tmp_path, monkeypatch):
+    """A failed engine response must fail the task before either subtitle writer runs."""
+    from core.translate import TranslateEngine
+
+    class FailingEngine(TranslateEngine):
+        def translate_batch(self, *args, **kwargs):
+            return None
+
+    video = tmp_path / "movie.mkv"
+    video.write_text("video")
+    cfg = AppConfig(temp_dir=str(tmp_path / "tmp"), target_language="zh-CN")
+    monkeypatch.setattr("core.task_manager.get_config", lambda: cfg)
+    monkeypatch.setattr("core.translate.get_translate_engine", lambda **_: FailingEngine())
+    monkeypatch.setattr("core.utils.check_memory_limit", lambda: None)
+    monkeypatch.setattr("env_config.MODEL_IDLE_TIMEOUT", 0)
+
+    async def fake_resolve(*args, **kwargs):
+        return {"kind": "external", "path": str(video), "lang": "en", "display": "movie.en.srt"}
+
+    monkeypatch.setattr("core.subtitle_source.resolve_subtitle_source", fake_resolve)
+    monkeypatch.setattr(
+        "core.subtitle_source.read_subtitle_segments",
+        lambda _: [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+    )
+    write_target = MagicMock()
+    write_bilingual = MagicMock()
+    monkeypatch.setattr("core.subtitle_writer.generate_srt", write_target)
+    monkeypatch.setattr("core.subtitle_writer.generate_bilingual_srt", write_bilingual)
+
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    task_id = manager.create_task(str(video), source_type="subtitle")
+    manager._update_task(task_id, max_retries=0)
+    manager._execute_pipeline(manager.get_task(task_id))
+
+    task = manager.get_task(task_id)
+    assert task["status"] == "failed"
+    assert task["translated_segments"] is None
+    assert task["error_message"] == "Translation failed"
+    write_target.assert_not_called()
+    write_bilingual.assert_not_called()
