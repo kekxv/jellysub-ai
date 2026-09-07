@@ -1,5 +1,6 @@
 """SQLite-backed task queue with single worker thread for subtitle generation pipelines."""
 
+import asyncio
 import json
 import logging
 import os
@@ -547,7 +548,6 @@ class TaskManager:
                 self._update_task(task_id, stage="reading_subtitle", progress=_STAGE_PROGRESS["reading_subtitle"])
                 self._record_stage(task_id, "reading_subtitle")
 
-                import asyncio
                 from core.subtitle_source import resolve_subtitle_source, read_subtitle_segments
 
                 loop = asyncio.new_event_loop()
@@ -585,7 +585,6 @@ class TaskManager:
                 self._update_task(task_id, stage="extracting_audio", progress=_STAGE_PROGRESS["extracting_audio"])
                 self._record_stage(task_id, "extracting_audio")
 
-                import asyncio
                 from core.audio import extract_audio
                 from core.utils import check_memory_limit
 
@@ -691,7 +690,6 @@ class TaskManager:
 
             if task["pipeline_type"] == "webhook":
                 # Refresh Jellyfin
-                import asyncio
                 from core.jellyfin_api import JellyfinClient
                 client = JellyfinClient(cfg.jellyfin_url, cfg.jellyfin_api_key)
                 asyncio.new_event_loop().run_until_complete(client.refresh_item(task["item_id"]))

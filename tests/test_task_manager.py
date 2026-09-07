@@ -175,3 +175,38 @@ def test_pipeline_does_not_write_subtitles_after_translation_failure(tmp_path, m
     assert task["error_message"] == "Translation failed"
     write_target.assert_not_called()
     write_bilingual.assert_not_called()
+
+
+def test_pipeline_retries_saved_source_segments_without_asyncio_scope_error(tmp_path, monkeypatch):
+    """A retry reusing saved source segments still runs translation and writes subtitles."""
+    video = tmp_path / "movie.mkv"
+    video.write_text("video")
+    cfg = AppConfig(temp_dir=str(tmp_path / "tmp"), target_language="zh-CN")
+    monkeypatch.setattr("core.task_manager.get_config", lambda: cfg)
+    monkeypatch.setattr("core.utils.check_memory_limit", lambda: None)
+    monkeypatch.setattr("env_config.MODEL_IDLE_TIMEOUT", 0)
+
+    async def fake_translate(segments, target_lang, **kwargs):
+        return [{"start": segment["start"], "end": segment["end"], "text": "你好"} for segment in segments]
+
+    write_target = MagicMock(return_value=True)
+    write_bilingual = MagicMock(return_value=True)
+    monkeypatch.setattr("core.translate.translate_segments", fake_translate)
+    monkeypatch.setattr("core.translate.set_translate_busy", lambda value: None)
+    monkeypatch.setattr("core.subtitle_writer.generate_srt", write_target)
+    monkeypatch.setattr("core.subtitle_writer.generate_bilingual_srt", write_bilingual)
+
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    task_id = manager.create_task(str(video), pipeline_type="video_subtitle")
+    manager._update_task(
+        task_id,
+        source_segments='[{"start": 0.0, "end": 1.0, "text": "Hello"}]',
+        max_retries=0,
+    )
+    manager._execute_pipeline(manager.get_task(task_id))
+
+    task = manager.get_task(task_id)
+    assert task["status"] == "done"
+    assert task["error_message"] is None
+    write_target.assert_called_once()
+    write_bilingual.assert_called_once()
