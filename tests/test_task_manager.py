@@ -25,6 +25,24 @@ def test_active_task_creation_is_atomic_across_manager_instances(tmp_path):
     assert managers[0].count_tasks(status="pending") == 1
 
 
+def test_task_progress_counters_are_saved(tmp_path):
+    """Task rows persist exact ASR and translation item counters."""
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    task_id = manager.create_task("/media/movie.mkv")
+
+    manager._update_task(
+        task_id,
+        asr_completed=12,
+        asr_total=100,
+        translate_completed=34,
+        translate_total=120,
+    )
+
+    task = manager.get_task(task_id)
+    assert (task["asr_completed"], task["asr_total"]) == (12, 100)
+    assert (task["translate_completed"], task["translate_total"]) == (34, 120)
+
+
 def test_retrying_failed_task_with_an_active_task_returns_already_running(tmp_path):
     """Retry must not reactivate a failed task when its video is already active."""
     manager = TaskManager(str(tmp_path / "tasks.db"))
@@ -170,7 +188,7 @@ def test_pipeline_does_not_write_subtitles_after_translation_failure(tmp_path, m
     manager._execute_pipeline(manager.get_task(task_id))
 
     task = manager.get_task(task_id)
-    assert task["status"] == "failed"
+    assert task["status"] == "pending"
     assert task["translated_segments"] is None
     assert task["error_message"] == "Translation failed"
     write_target.assert_not_called()
@@ -187,6 +205,9 @@ def test_pipeline_retries_saved_source_segments_without_asyncio_scope_error(tmp_
     monkeypatch.setattr("env_config.MODEL_IDLE_TIMEOUT", 0)
 
     async def fake_translate(segments, target_lang, **kwargs):
+        progress_callback = kwargs["progress_callback"]
+        progress_callback(0, len(segments))
+        progress_callback(len(segments), len(segments))
         return [{"start": segment["start"], "end": segment["end"], "text": "你好"} for segment in segments]
 
     write_target = MagicMock(return_value=True)
@@ -208,5 +229,38 @@ def test_pipeline_retries_saved_source_segments_without_asyncio_scope_error(tmp_
     task = manager.get_task(task_id)
     assert task["status"] == "done"
     assert task["error_message"] is None
+    assert (task["translate_completed"], task["translate_total"]) == (1, 1)
     write_target.assert_called_once()
     write_bilingual.assert_called_once()
+
+
+def test_translation_failure_gets_three_additional_serial_task_retries(tmp_path, monkeypatch):
+    """Translation failures are retried three times before the task is marked failed."""
+    video = tmp_path / "movie.mkv"
+    video.write_text("video")
+    cfg = AppConfig(temp_dir=str(tmp_path / "tmp"), target_language="zh-CN")
+    monkeypatch.setattr("core.task_manager.get_config", lambda: cfg)
+    monkeypatch.setattr("core.utils.check_memory_limit", lambda: None)
+    monkeypatch.setattr("env_config.MODEL_IDLE_TIMEOUT", 0)
+
+    async def failed_translate(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("core.translate.translate_segments", failed_translate)
+    monkeypatch.setattr("core.translate.set_translate_busy", lambda value: None)
+
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    task_id = manager.create_task(str(video), pipeline_type="video_subtitle")
+    manager._update_task(task_id, source_segments='[{"start": 0.0, "end": 1.0, "text": "Hello"}]')
+
+    for retry_count in range(1, 4):
+        manager._execute_pipeline(manager.get_task(task_id))
+        task = manager.get_task(task_id)
+        assert task["status"] == "pending"
+        assert task["retry_count"] == retry_count
+        assert task["error_message"] == "Translation failed"
+
+    manager._execute_pipeline(manager.get_task(task_id))
+    task = manager.get_task(task_id)
+    assert task["status"] == "failed"
+    assert task["retry_count"] == 4

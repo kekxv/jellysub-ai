@@ -2,12 +2,15 @@
 
 import json
 import logging
+import threading
 
 from openai import OpenAI
 
 from core.translate.base import TranslateEngine, _INSTRUCTION, parse_json_output
 
 logger = logging.getLogger("uvicorn.error")
+
+_online_request_lock = threading.Lock()
 
 
 class OnlineTranslateEngine(TranslateEngine):
@@ -51,7 +54,10 @@ def _translate_batch_online(
             "temperature": 0.3,
             "max_tokens": 1024,
         }
-        resp = client.chat.completions.create(**kwargs)
+        # Some OpenAI-compatible services permit only one active request.
+        # This also serializes Settings test calls with background tasks.
+        with _online_request_lock:
+            resp = client.chat.completions.create(**kwargs)
         content = resp.choices[0].message.content.strip()
 
         return parse_json_output(content, len(texts))

@@ -10,6 +10,7 @@ import os
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 
 from core.asr.base import AsrEngine, add_silence_gaps, reflow_long_segments
 from core.audio import get_audio_duration
@@ -27,6 +28,7 @@ def transcribe_with_vad(
     min_speech_ms: int = 100,
     language: str = "auto",
     pad_sec: float = 0.3,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[list[dict], str]:
     """
     使用 VAD 分块处理长音频并识别。
@@ -67,12 +69,18 @@ def transcribe_with_vad(
     if len(speech_segments) == 1 or total_speech < 30:
         # 短音频或单一段，直接处理
         logger.info("VAD: total speech %.1fs < 30s, processing as single chunk (no split)", total_speech)
+        if progress_callback:
+            progress_callback(0, 1)
         segments, detected_lang = engine.transcribe(audio_path, language=language)
+        if progress_callback:
+            progress_callback(1, 1)
         # SenseVoice 不返回时间戳（start == end == 0.0），用 VAD 片段时间来分配
         return _fix_timestamps(segments, speech_segments, audio_path), detected_lang
 
     logger.info("VAD splitting audio into %d chunks (total speech: %.1f min)",
                 len(speech_segments), total_speech / 60)
+    if progress_callback:
+        progress_callback(0, len(speech_segments))
 
     all_segments: list[dict] = []
     detected_lang = ""
@@ -103,6 +111,8 @@ def transcribe_with_vad(
             result = subprocess.run(cmd, capture_output=True, timeout=60)
             if result.returncode != 0:
                 logger.warning("Failed to extract chunk %d", i)
+                if progress_callback:
+                    progress_callback(i + 1, len(speech_segments))
                 continue
 
             # 识别该分块
@@ -136,6 +146,8 @@ def transcribe_with_vad(
                         seg.start / 60, seg.end / 60,
                         cut_start, cut_end,
                         len(chunk_segments), chunk_lang)
+            if progress_callback:
+                progress_callback(i + 1, len(speech_segments))
 
             # 关键 2：激进释放内存。
             # 除了 torch 的缓存，还显式触发 python 的 gc。

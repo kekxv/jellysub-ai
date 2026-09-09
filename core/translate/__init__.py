@@ -2,6 +2,7 @@
 
 import logging
 import re
+from collections.abc import Callable
 
 from core.translate.base import (
     TranslateEngine,
@@ -79,6 +80,7 @@ async def translate_segments(
     thinking: bool = False,
     prompt_format: str = "json",
     source_lang: str = "",
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> list[dict]:
     """
     翻译字幕片段。
@@ -94,6 +96,8 @@ async def translate_segments(
 
     all_texts = [seg["text"] for seg in segments]
     translated_texts: list[str | None] = [None] * len(all_texts)
+    if progress_callback:
+        progress_callback(0, len(all_texts))
     # 纯标点直接跳过，用原文填充
     for i, t in enumerate(all_texts):
         if _ONLY_PUNCT.match(t.strip()):
@@ -162,6 +166,8 @@ async def translate_segments(
             if batch_translated and len(batch_translated) == len(texts):
                 for idx, translated in zip(indices, batch_translated):
                     translated_texts[idx] = translated.strip()
+                if progress_callback:
+                    progress_callback(sum(text is not None for text in translated_texts), len(all_texts))
             else:
                 logger.warning(
                     "Translation batch failed (attempt %d), indices=%s",
