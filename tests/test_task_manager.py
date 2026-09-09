@@ -153,8 +153,8 @@ def test_pipeline_subtitle_source_uses_explicit_source_lang(tmp_path, monkeypatc
     assert translate_source_lang["lang"] == "fr"
 
 
-def test_pipeline_does_not_write_subtitles_after_translation_failure(tmp_path, monkeypatch):
-    """A failed engine response must fail the task before either subtitle writer runs."""
+def test_pipeline_writes_source_subtitles_after_translation_failure(tmp_path, monkeypatch):
+    """A failed engine response falls back to source text and completes the task."""
     from core.translate import TranslateEngine
 
     class FailingEngine(TranslateEngine):
@@ -188,11 +188,18 @@ def test_pipeline_does_not_write_subtitles_after_translation_failure(tmp_path, m
     manager._execute_pipeline(manager.get_task(task_id))
 
     task = manager.get_task(task_id)
-    assert task["status"] == "pending"
-    assert task["translated_segments"] is None
-    assert task["error_message"] == "Translation failed"
-    write_target.assert_not_called()
-    write_bilingual.assert_not_called()
+    assert task["status"] == "done"
+    assert task["translated_segments"] is not None
+    assert task["error_message"] is None
+    write_target.assert_called_once_with(
+        [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+        str(tmp_path / "movie.default.zh-CN.srt"),
+    )
+    write_bilingual.assert_called_once_with(
+        [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+        [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+        str(tmp_path / "movie.bilingual.zh-CN.srt"),
+    )
 
 
 def test_pipeline_retries_saved_source_segments_without_asyncio_scope_error(tmp_path, monkeypatch):

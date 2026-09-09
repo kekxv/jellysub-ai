@@ -17,8 +17,8 @@ class FailingEngine(TranslateEngine):
 
 
 @pytest.mark.asyncio
-async def test_translate_segments_returns_none_when_a_batch_never_translates(monkeypatch):
-    """Failed translations must not be silently replaced with source subtitles."""
+async def test_translate_segments_uses_source_when_a_batch_never_translates(monkeypatch):
+    """A permanently failed item falls back to its source text."""
     monkeypatch.setattr("core.translate.get_translate_engine", lambda **_: FailingEngine())
 
     result = await translate_segments(
@@ -28,7 +28,7 @@ async def test_translate_segments_returns_none_when_a_batch_never_translates(mon
         source_lang="en",
     )
 
-    assert result is None
+    assert result == [{"start": 0.0, "end": 1.0, "text": "Hello"}]
 
 
 @pytest.mark.asyncio
@@ -53,6 +53,39 @@ async def test_translate_segments_reports_completed_items_after_each_serial_batc
 
     assert len(result) == 6
     assert updates == [(0, 6), (5, 6), (6, 6)]
+
+
+@pytest.mark.asyncio
+async def test_translate_segments_retries_invalid_item_before_next_batch_and_falls_back_to_source(monkeypatch):
+    """A bad item is retried immediately and cannot restart completed batches."""
+    calls = []
+
+    class PartiallyInvalidEngine(TranslateEngine):
+        def translate_batch(self, texts, *args, **kwargs):
+            calls.append(list(texts))
+            if texts == ["line 4"]:
+                return ["line 4"]
+            return ["line 4" if text == "line 4" else f"译文 {text}" for text in texts]
+
+    monkeypatch.setattr("core.translate.get_translate_engine", lambda **_: PartiallyInvalidEngine())
+    segments = [
+        {"start": float(index), "end": float(index + 1), "text": f"line {index}"}
+        for index in range(11)
+    ]
+
+    result = await translate_segments(segments, "zh-CN", source_lang="en")
+
+    assert calls == [
+        ["line 0", "line 1", "line 2", "line 3", "line 4"],
+        ["line 4"],
+        ["line 5", "line 6", "line 7", "line 8", "line 9"],
+        ["line 10"],
+    ]
+    assert [segment["text"] for segment in result] == [
+        "译文 line 0", "译文 line 1", "译文 line 2", "译文 line 3", "line 4",
+        "译文 line 5", "译文 line 6", "译文 line 7", "译文 line 8", "译文 line 9",
+        "译文 line 10",
+    ]
 
 
 def test_online_translation_uses_only_standard_chat_completions_parameters(monkeypatch):

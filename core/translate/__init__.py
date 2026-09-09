@@ -131,113 +131,71 @@ async def translate_segments(
                 context_parts.append(all_texts[i])
         return " ".join(context_parts)
 
-    # 最多重试 3 次翻译失败的批次
-    for attempt in range(3):
-        if not failed_indices:
-            break
-
-        # 如果是重试，减小 Batch Size 以提高成功率
-        retry_batch_size = _MAX_BATCH_ITEMS if attempt == 0 else max(1, _MAX_BATCH_ITEMS - attempt * 2)
-
-        # 将失败索引按批次切分，只翻译需要的批次
-        retry_batches = []
-        current = []
-        current_chars = 0
-        for idx in failed_indices:
-            text = all_texts[idx]
-            if not current or (len(current) < retry_batch_size and current_chars + len(text) <= _MAX_BATCH_CHARS):
-                current.append((idx, text))
-                current_chars += len(text)
-            else:
-                if current:
-                    retry_batches.append(current)
-                current = [(idx, text)]
-                current_chars = len(text)
-        if current:
-            retry_batches.append(current)
-
-        failed_indices = []
-        for batch_items in retry_batches:
-            indices = [item[0] for item in batch_items]
-            texts = [item[1] for item in batch_items]
-
-            batch_translated = engine.translate_batch(texts, target_lang, engine_format, thinking,
-                                                       context=_build_context(indices), source_lang=source_lang)
-            if batch_translated and len(batch_translated) == len(texts):
-                for idx, translated in zip(indices, batch_translated):
-                    translated_texts[idx] = translated.strip()
-                if progress_callback:
-                    progress_callback(sum(text is not None for text in translated_texts), len(all_texts))
-            else:
-                logger.warning(
-                    "Translation batch failed (attempt %d), indices=%s",
-                    attempt + 1, indices,
-                )
-                failed_indices.extend(indices)
-
-    if failed_indices:
-        logger.error("Translation failed for %d subtitle segments", len(failed_indices))
-        return None
-
-    result = []
-    for seg, translated_text in zip(segments, translated_texts):
-        result.append({
-            "start": seg["start"],
-            "end": seg["end"],
-            "text": translated_text,
-        })
-
-    # --- 翻译质量检查 ---
-    retry_indices = []
     source_str = str(source_lang) if isinstance(source_lang, (set, list)) else (source_lang or "")
     target_group = _LANG_GROUP.get(target_lang, {target_lang[:2]})
     source_base = _LANG_GROUP.get(source_str, {source_str[:2]} if source_str else set())
     source_matches_target = bool(source_base & target_group)
 
-    for i, (seg, translated) in enumerate(zip(segments, translated_texts)):
-        orig = seg["text"].strip()
-        trans = translated.strip()
-
-        # 源文本本身只有标点，不属于需要翻译的内容。
-        if _ONLY_PUNCT.match(orig):
-            continue
-
-        # 翻译结果只有标点（说明模型没翻译出内容），需要重试
-        if _ONLY_PUNCT.match(trans):
-            retry_indices.append(i)
-            continue
-
-        # 翻译结果与原文相同，且源语言与目标语言不匹配 → 需要重试
-        if orig == trans and not source_matches_target:
-            retry_indices.append(i)
-
-    if retry_indices:
-        logger.info(
-            "Found %d untranslated/poor items, forcing retry (source_lang=%s, target_lang=%s)",
-            len(retry_indices), source_str, target_lang,
+    def is_valid_translation(index: int, text: str) -> bool:
+        original = all_texts[index].strip()
+        translated = text.strip()
+        return (
+            bool(translated)
+            and not _ONLY_PUNCT.match(translated)
+            and (original != translated or source_matches_target)
         )
-        retry_texts = [segments[i]["text"] for i in retry_indices]
-        retry_translated = engine.translate_batch(retry_texts, target_lang, engine_format, thinking,
-                                                   context=_build_context(retry_indices), source_lang=source_lang)
-        retry_failed = []
-        if retry_translated and len(retry_translated) == len(retry_texts):
-            for idx, new_text in zip(retry_indices, retry_translated):
-                new_stripped = new_text.strip()
-                # 重试后仍然只有标点或和原文一样，放弃重试
-                orig = segments[idx]["text"].strip()
-                if not _ONLY_PUNCT.match(new_stripped) and new_stripped != orig:
-                    result[idx]["text"] = new_stripped
-                    logger.info("Retry fixed index %d: %s -> %s",
-                                idx, orig[:40], new_stripped[:40])
-                else:
-                    retry_failed.append(idx)
-                    logger.warning("Retry index %d still untranslated", idx)
-        else:
-            retry_failed = retry_indices
-            logger.warning("Retry for untranslated also failed")
 
-        if retry_failed:
-            logger.error("Translation output remained invalid for %d subtitle segments", len(retry_failed))
-            return None
+    # Process each batch independently.  Validate it before moving on so a
+    # malformed response only retries the affected entries, never the task.
+    pending_batches = []
+    current = []
+    current_chars = 0
+    for idx in failed_indices:
+        text = all_texts[idx]
+        if not current or (len(current) < _MAX_BATCH_ITEMS and current_chars + len(text) <= _MAX_BATCH_CHARS):
+            current.append(idx)
+            current_chars += len(text)
+        else:
+            pending_batches.append(current)
+            current = [idx]
+            current_chars = len(text)
+    if current:
+        pending_batches.append(current)
+
+    for indices in pending_batches:
+        texts = [all_texts[index] for index in indices]
+        batch_translated = engine.translate_batch(
+            texts, target_lang, engine_format, thinking,
+            context=_build_context(indices), source_lang=source_lang,
+        )
+        invalid_indices = list(indices)
+        if batch_translated and len(batch_translated) == len(texts):
+            invalid_indices = []
+            for index, translated in zip(indices, batch_translated):
+                if is_valid_translation(index, translated):
+                    translated_texts[index] = translated.strip()
+                else:
+                    invalid_indices.append(index)
+        else:
+            logger.warning("Translation batch failed, retrying items individually: indices=%s", indices)
+
+        for index in invalid_indices:
+            translated = engine.translate_batch(
+                [all_texts[index]], target_lang, engine_format, thinking,
+                context=_build_context([index]), source_lang=source_lang,
+            )
+            if translated and len(translated) == 1 and is_valid_translation(index, translated[0]):
+                translated_texts[index] = translated[0].strip()
+            else:
+                translated_texts[index] = all_texts[index].strip()
+                logger.warning("Translation item %d remained invalid; using source text", index)
+
+        if progress_callback:
+            progress_callback(sum(text is not None for text in translated_texts), len(all_texts))
+
+    result = [
+        {"start": seg["start"], "end": seg["end"], "text": translated_text}
+        for seg, translated_text in zip(segments, translated_texts)
+    ]
 
     return result
