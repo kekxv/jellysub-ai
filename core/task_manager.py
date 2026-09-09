@@ -31,6 +31,8 @@ _STAGE_PROGRESS = {
     "done": 100,
 }
 
+_TRANSLATION_MAX_RETRIES = 3
+
 
 def _cleanup_tmp_files(tmp_dir: Path, audio_path: str):
     """清理任务相关的临时文件（音频 + VAD 分块）。"""
@@ -700,12 +702,16 @@ class TaskManager:
             self._record_stage(task_id, task.get("stage", "unknown"), error=str(e))
             logger.exception("Task %d failed at stage %s", task_id, task.get("stage"))
             retry_count = task.get("retry_count", 0) + 1
-            if retry_count <= task.get("max_retries", 1):
+            max_retries = task.get("max_retries", 1)
+            if str(e) == "Translation failed":
+                max_retries = max(max_retries, _TRANSLATION_MAX_RETRIES)
+            if retry_count <= max_retries:
                 self._update_task(
                     task_id,
                     status="pending",
                     stage="pending",
                     retry_count=retry_count,
+                    max_retries=max_retries,
                     progress=0,
                     error_message=str(e),
                 )

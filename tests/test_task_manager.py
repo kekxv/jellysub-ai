@@ -170,7 +170,7 @@ def test_pipeline_does_not_write_subtitles_after_translation_failure(tmp_path, m
     manager._execute_pipeline(manager.get_task(task_id))
 
     task = manager.get_task(task_id)
-    assert task["status"] == "failed"
+    assert task["status"] == "pending"
     assert task["translated_segments"] is None
     assert task["error_message"] == "Translation failed"
     write_target.assert_not_called()
@@ -210,3 +210,35 @@ def test_pipeline_retries_saved_source_segments_without_asyncio_scope_error(tmp_
     assert task["error_message"] is None
     write_target.assert_called_once()
     write_bilingual.assert_called_once()
+
+
+def test_translation_failure_gets_three_additional_serial_task_retries(tmp_path, monkeypatch):
+    """Translation failures are retried three times before the task is marked failed."""
+    video = tmp_path / "movie.mkv"
+    video.write_text("video")
+    cfg = AppConfig(temp_dir=str(tmp_path / "tmp"), target_language="zh-CN")
+    monkeypatch.setattr("core.task_manager.get_config", lambda: cfg)
+    monkeypatch.setattr("core.utils.check_memory_limit", lambda: None)
+    monkeypatch.setattr("env_config.MODEL_IDLE_TIMEOUT", 0)
+
+    async def failed_translate(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("core.translate.translate_segments", failed_translate)
+    monkeypatch.setattr("core.translate.set_translate_busy", lambda value: None)
+
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    task_id = manager.create_task(str(video), pipeline_type="video_subtitle")
+    manager._update_task(task_id, source_segments='[{"start": 0.0, "end": 1.0, "text": "Hello"}]')
+
+    for retry_count in range(1, 4):
+        manager._execute_pipeline(manager.get_task(task_id))
+        task = manager.get_task(task_id)
+        assert task["status"] == "pending"
+        assert task["retry_count"] == retry_count
+        assert task["error_message"] == "Translation failed"
+
+    manager._execute_pipeline(manager.get_task(task_id))
+    task = manager.get_task(task_id)
+    assert task["status"] == "failed"
+    assert task["retry_count"] == 4
