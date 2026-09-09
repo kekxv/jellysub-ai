@@ -25,6 +25,24 @@ def test_active_task_creation_is_atomic_across_manager_instances(tmp_path):
     assert managers[0].count_tasks(status="pending") == 1
 
 
+def test_task_progress_counters_are_saved(tmp_path):
+    """Task rows persist exact ASR and translation item counters."""
+    manager = TaskManager(str(tmp_path / "tasks.db"))
+    task_id = manager.create_task("/media/movie.mkv")
+
+    manager._update_task(
+        task_id,
+        asr_completed=12,
+        asr_total=100,
+        translate_completed=34,
+        translate_total=120,
+    )
+
+    task = manager.get_task(task_id)
+    assert (task["asr_completed"], task["asr_total"]) == (12, 100)
+    assert (task["translate_completed"], task["translate_total"]) == (34, 120)
+
+
 def test_retrying_failed_task_with_an_active_task_returns_already_running(tmp_path):
     """Retry must not reactivate a failed task when its video is already active."""
     manager = TaskManager(str(tmp_path / "tasks.db"))
@@ -187,6 +205,9 @@ def test_pipeline_retries_saved_source_segments_without_asyncio_scope_error(tmp_
     monkeypatch.setattr("env_config.MODEL_IDLE_TIMEOUT", 0)
 
     async def fake_translate(segments, target_lang, **kwargs):
+        progress_callback = kwargs["progress_callback"]
+        progress_callback(0, len(segments))
+        progress_callback(len(segments), len(segments))
         return [{"start": segment["start"], "end": segment["end"], "text": "你好"} for segment in segments]
 
     write_target = MagicMock(return_value=True)
@@ -208,6 +229,7 @@ def test_pipeline_retries_saved_source_segments_without_asyncio_scope_error(tmp_
     task = manager.get_task(task_id)
     assert task["status"] == "done"
     assert task["error_message"] is None
+    assert (task["translate_completed"], task["translate_total"]) == (1, 1)
     write_target.assert_called_once()
     write_bilingual.assert_called_once()
 

@@ -3,6 +3,7 @@
 import logging
 import threading
 import time
+from collections.abc import Callable
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -172,6 +173,7 @@ def run_asr(
     vad_threshold: float = 0.3,
     vad_speech_pad_ms: int = 300,
     vad_min_speech_ms: int = 100,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[list[dict], str]:
     """
     对音频进行语音识别，返回 (片段列表, 检测到的语言代码)。
@@ -188,7 +190,12 @@ def run_asr(
     # 向后兼容：mode="online" 等价于 engine="openai"
     if mode == "online" or engine == "openai":
         eng = OpenaiAsrEngine(api_url=api_url, api_key=api_key, model=model_online or "whisper-1")
-        return eng.transcribe(audio_path, language=asr_language)
+        if progress_callback:
+            progress_callback(0, 1)
+        result = eng.transcribe(audio_path, language=asr_language)
+        if progress_callback:
+            progress_callback(1, 1)
+        return result
 
     # 本地模式
     eng = get_asr_engine(engine, model_name=model_name, api_url=api_url, api_key=api_key, model_online=model_online)
@@ -202,6 +209,12 @@ def run_asr(
             speech_pad_ms=vad_speech_pad_ms,
             min_speech_ms=vad_min_speech_ms,
             language=asr_language,
+            progress_callback=progress_callback,
         )
 
-    return eng.transcribe(audio_path, language=asr_language)
+    if progress_callback:
+        progress_callback(0, 1)
+    result = eng.transcribe(audio_path, language=asr_language)
+    if progress_callback:
+        progress_callback(1, 1)
+    return result

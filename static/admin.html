@@ -1147,11 +1147,21 @@
             const value = Number(task.progress);
             return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
         }
+        function taskProgressDetail(task) {
+            if (task.stage === 'asr' && Number(task.asr_total) > 0) {
+                return `识别 ${task.asr_completed}/${task.asr_total}`;
+            }
+            if (task.stage === 'translating' && Number(task.translate_total) > 0) {
+                return `翻译 ${task.translate_completed}/${task.translate_total}`;
+            }
+            return '';
+        }
         function renderActiveTask(task) {
             const progress = taskProgress(task);
+            const detail = taskProgressDetail(task);
             return `<article class="active-task-row">
                 <div class="active-task-main"><div class="active-task-title">${escHtml(task.item_name || task.video_path || '字幕任务')}</div>
-                <div class="active-task-meta">${escHtml(stageLabel(task.stage))} · ${progress}%</div></div>
+                <div class="active-task-meta">${escHtml(stageLabel(task.stage))}${detail ? ` · ${escHtml(detail)}` : ''} · ${progress}%</div></div>
                 <div class="progress-wrap"><div class="progress-bar"><span style="width:${progress}%"></span></div><strong>${progress}%</strong></div>
             </article>`;
         }
@@ -1221,6 +1231,7 @@
             tasks.forEach(t => {
                 const status = taskStatusInfo(t.status);
                 const progress = taskProgress(t);
+                const detail = taskProgressDetail(t);
                 const card = document.createElement('article');
                 card.className = `task-history-row task-history-${status.className}`;
                 card.innerHTML = `
@@ -1231,7 +1242,7 @@
                         </label>
                         <span class="task-status-label ${status.className}">${status.label}</span>
                     </div>
-                    <div class="task-history-meta"><span class="task-type-tag">${escHtml(pipelineLabel(t.pipeline_type))}</span><span>${escHtml(stageLabel(t.stage))}</span><time>${escHtml(formatTaskTime(t.created_at))}</time></div>
+                    <div class="task-history-meta"><span class="task-type-tag">${escHtml(pipelineLabel(t.pipeline_type))}</span><span>${escHtml(stageLabel(t.stage))}</span>${detail ? `<span>${escHtml(detail)}</span>` : ''}<time>${escHtml(formatTaskTime(t.created_at))}</time></div>
                     <div class="task-history-progress"><div class="progress-bar"><span style="width:${progress}%"></span></div><strong>${progress}%</strong></div>
                     ${t.status === 'failed' && t.error_message ? `<p class="task-history-error"><span>失败原因</span>${escHtml(t.error_message)}</p>` : ''}
                     <div class="task-history-actions">

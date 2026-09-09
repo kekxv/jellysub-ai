@@ -117,6 +117,10 @@ class TaskManager:
                     max_retries INTEGER DEFAULT 1,
                     source_segments TEXT,
                     translated_segments TEXT,
+                    asr_completed INTEGER DEFAULT 0,
+                    asr_total INTEGER DEFAULT 0,
+                    translate_completed INTEGER DEFAULT 0,
+                    translate_total INTEGER DEFAULT 0,
                     asr_language TEXT DEFAULT 'auto',
                     source_type TEXT DEFAULT 'asr',
                     source_path TEXT,
@@ -136,6 +140,10 @@ class TaskManager:
                 ("max_retries", "INTEGER DEFAULT 1"),
                 ("source_segments", "TEXT"),
                 ("translated_segments", "TEXT"),
+                ("asr_completed", "INTEGER DEFAULT 0"),
+                ("asr_total", "INTEGER DEFAULT 0"),
+                ("translate_completed", "INTEGER DEFAULT 0"),
+                ("translate_total", "INTEGER DEFAULT 0"),
                 ("started_at", "TIMESTAMP"),
                 ("asr_language", "TEXT DEFAULT 'auto'"),
                 ("source_type", "TEXT DEFAULT 'asr'"),
@@ -599,12 +607,22 @@ class TaskManager:
 
                 # --- Stage 2: ASR ---
                 self._update_task(task_id, stage="asr", progress=_STAGE_PROGRESS["asr"])
+                self._update_task(task_id, asr_completed=0, asr_total=0)
                 from core.asr import run_asr, set_asr_busy
                 from core.utils import check_memory_limit
 
                 check_memory_limit()
                 set_asr_busy(True)
                 try:
+                    def update_asr_progress(completed: int, total: int):
+                        percent = 50 + int(25 * completed / total) if total else 50
+                        self._update_task(
+                            task_id,
+                            asr_completed=completed,
+                            asr_total=total,
+                            progress=min(percent, 75),
+                        )
+
                     segments, detected_lang = run_asr(
                         audio_path,
                         mode=cfg.asr_mode,
@@ -619,6 +637,7 @@ class TaskManager:
                         vad_threshold=cfg.vad_threshold,
                         vad_speech_pad_ms=cfg.vad_speech_pad_ms,
                         vad_min_speech_ms=cfg.vad_min_speech_ms,
+                        progress_callback=update_asr_progress,
                     )
 
                 finally:
@@ -646,13 +665,28 @@ class TaskManager:
                 translated = _json.loads(task["translated_segments"])
                 logger.info("Task %d: translation result already exists (%d segments)", task_id, len(translated))
             else:
-                self._update_task(task_id, stage="translating", progress=_STAGE_PROGRESS["translating"])
+                self._update_task(
+                    task_id,
+                    stage="translating",
+                    progress=_STAGE_PROGRESS["translating"],
+                    translate_completed=0,
+                    translate_total=0,
+                )
                 from core.translate import translate_segments, set_translate_busy
                 from core.utils import check_memory_limit
 
                 check_memory_limit()
                 set_translate_busy(True)
                 try:
+                    def update_translate_progress(completed: int, total: int):
+                        percent = 80 + int(14 * completed / total) if total else 80
+                        self._update_task(
+                            task_id,
+                            translate_completed=completed,
+                            translate_total=total,
+                            progress=min(percent, 94),
+                        )
+
                     translated = asyncio.new_event_loop().run_until_complete(
                         translate_segments(
                             segments,
@@ -665,6 +699,7 @@ class TaskManager:
                             thinking=cfg.translate_thinking,
                             prompt_format=cfg.translate_prompt_format,
                             source_lang=detected_lang,
+                            progress_callback=update_translate_progress,
                         )
                     )
                 finally:

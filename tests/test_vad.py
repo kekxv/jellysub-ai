@@ -72,6 +72,7 @@ def test_transcribe_with_vad_chunks_use_padding(tmp_path):
         type("S", (), {"start": 2.0, "end": 3.5})(),
         type("S", (), {"start": 40.0, "end": 70.0})(),
     ]
+    progress = []
     with patch("core.asr.vad_wrapper.detect_speech_segments", return_value=segs), \
          patch("core.asr.vad_wrapper.get_audio_duration", return_value=60.0), \
          patch("subprocess.run") as mock_run:
@@ -79,6 +80,7 @@ def test_transcribe_with_vad_chunks_use_padding(tmp_path):
         segments, _ = vw.transcribe_with_vad(
             fake_engine, str(wav_path), min_silence_ms=500,
             threshold=0.3, speech_pad_ms=300, min_speech_ms=100, pad_sec=0.3,
+            progress_callback=lambda completed, total: progress.append((completed, total)),
         )
     # 第一个切块命令使用 padding 后的切点 2.0-0.3=1.7 / 3.5+0.3=3.8
     cmd = mock_run.call_args_list[0].args[0]
@@ -87,6 +89,7 @@ def test_transcribe_with_vad_chunks_use_padding(tmp_path):
     # 单段 chunk：时间戳直接用绝对切点，且不得再加一次 cut_start（防双重偏移）
     assert segments[0]["start"] == 1.7
     assert segments[0]["end"] == 3.8
+    assert progress == [(0, 2), (1, 2), (2, 2)]
 
 
 def test_transcribe_with_vad_rescans_with_lower_threshold(tmp_path):

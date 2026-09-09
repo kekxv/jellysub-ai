@@ -31,6 +31,30 @@ async def test_translate_segments_returns_none_when_a_batch_never_translates(mon
     assert result is None
 
 
+@pytest.mark.asyncio
+async def test_translate_segments_reports_completed_items_after_each_serial_batch(monkeypatch):
+    """Translation reports cumulative item counts without parallelizing batches."""
+    class SuccessfulEngine(TranslateEngine):
+        def translate_batch(self, texts, *args, **kwargs):
+            return [f"译文 {text}" for text in texts]
+
+    updates = []
+    monkeypatch.setattr("core.translate.get_translate_engine", lambda **_: SuccessfulEngine())
+    segments = [
+        {"start": float(index), "end": float(index + 1), "text": f"line {index}"}
+        for index in range(6)
+    ]
+
+    result = await translate_segments(
+        segments,
+        "zh-CN",
+        progress_callback=lambda completed, total: updates.append((completed, total)),
+    )
+
+    assert len(result) == 6
+    assert updates == [(0, 6), (5, 6), (6, 6)]
+
+
 def test_online_translation_uses_only_standard_chat_completions_parameters(monkeypatch):
     """Disabling thinking must not add provider-specific fields to the SDK request."""
     request = {}

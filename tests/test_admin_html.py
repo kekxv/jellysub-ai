@@ -210,3 +210,12 @@ def test_admin_online_translation_settings_include_a_test_control_and_result_pan
     assert 'id="translate-test-result"' in html
     assert "async function testOnlineTranslation()" in html
     assert "'/api/test/translate'" in html
+
+
+def test_admin_task_progress_renders_asr_and_translation_item_counts():
+    """Active task UI identifies the completed and total units for ASR and translation."""
+    html = _admin_html()
+
+    assert "function taskProgressDetail(task)" in html
+    assert "识别 ${task.asr_completed}/${task.asr_total}" in html
+    assert "翻译 ${task.translate_completed}/${task.translate_total}" in html
