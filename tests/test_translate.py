@@ -88,6 +88,38 @@ async def test_translate_segments_retries_invalid_item_before_next_batch_and_fal
     ]
 
 
+@pytest.mark.asyncio
+async def test_translate_segments_splits_failed_batches_before_falling_back_to_items(monkeypatch):
+    """A failed batch is bisected so usable sub-batches are not retried item by item."""
+    calls = []
+
+    class SplitRecoveringEngine(TranslateEngine):
+        def translate_batch(self, texts, *args, **kwargs):
+            calls.append(list(texts))
+            if len(texts) in {5, 3}:
+                return None
+            return [f"译文 {text}" for text in texts]
+
+    monkeypatch.setattr("core.translate.get_translate_engine", lambda **_: SplitRecoveringEngine())
+    segments = [
+        {"start": float(index), "end": float(index + 1), "text": f"line {index}"}
+        for index in range(5)
+    ]
+
+    result = await translate_segments(segments, "zh-CN", source_lang="en")
+
+    assert calls == [
+        ["line 0", "line 1", "line 2", "line 3", "line 4"],
+        ["line 0", "line 1"],
+        ["line 2", "line 3", "line 4"],
+        ["line 2"],
+        ["line 3", "line 4"],
+    ]
+    assert [segment["text"] for segment in result] == [
+        "译文 line 0", "译文 line 1", "译文 line 2", "译文 line 3", "译文 line 4",
+    ]
+
+
 def test_online_translation_uses_only_standard_chat_completions_parameters(monkeypatch):
     """Disabling thinking must not add provider-specific fields to the SDK request."""
     request = {}

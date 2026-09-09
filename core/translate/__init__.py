@@ -162,24 +162,36 @@ async def translate_segments(
     if current:
         pending_batches.append(current)
 
-    for indices in pending_batches:
+    def translate_batch_or_split(indices: list[int]) -> tuple[list[int], list[int]]:
+        """Return items needing one retry and items that exhausted a split attempt."""
         texts = [all_texts[index] for index in indices]
         batch_translated = engine.translate_batch(
             texts, target_lang, engine_format, thinking,
             context=_build_context(indices), source_lang=source_lang,
         )
-        invalid_indices = list(indices)
         if batch_translated and len(batch_translated) == len(texts):
-            invalid_indices = []
+            retry_indices = []
             for index, translated in zip(indices, batch_translated):
                 if is_valid_translation(index, translated):
                     translated_texts[index] = translated.strip()
                 else:
-                    invalid_indices.append(index)
-        else:
-            logger.warning("Translation batch failed, retrying items individually: indices=%s", indices)
+                    retry_indices.append(index)
+            return retry_indices, []
 
-        for index in invalid_indices:
+        if len(indices) == 1:
+            logger.warning("Translation item %d failed; using source text", indices[0])
+            return [], indices
+
+        logger.warning("Translation batch failed, splitting it: indices=%s", indices)
+        midpoint = len(indices) // 2
+        left_retry, left_fallback = translate_batch_or_split(indices[:midpoint])
+        right_retry, right_fallback = translate_batch_or_split(indices[midpoint:])
+        return left_retry + right_retry, left_fallback + right_fallback
+
+    for indices in pending_batches:
+        retry_indices, fallback_indices = translate_batch_or_split(indices)
+
+        for index in retry_indices:
             translated = engine.translate_batch(
                 [all_texts[index]], target_lang, engine_format, thinking,
                 context=_build_context([index]), source_lang=source_lang,
@@ -189,6 +201,9 @@ async def translate_segments(
             else:
                 translated_texts[index] = all_texts[index].strip()
                 logger.warning("Translation item %d remained invalid; using source text", index)
+
+        for index in fallback_indices:
+            translated_texts[index] = all_texts[index].strip()
 
         if progress_callback:
             progress_callback(sum(text is not None for text in translated_texts), len(all_texts))
