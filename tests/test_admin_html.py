@@ -212,6 +212,12 @@ def test_admin_online_translation_settings_include_a_test_control_and_result_pan
     assert "'/api/test/translate'" in html
 
 
+def test_admin_translation_settings_include_nllb_fasttext_engine():
+    html = Path("static/admin.html").read_text(encoding="utf-8")
+    assert "facebook/nllb-200-distilled-600M" in html
+    assert "NLLB-200 INT8 + fastText" in html
+
+
 def test_admin_task_progress_renders_asr_and_translation_item_counts():
     """Active task UI identifies the completed and total units for ASR and translation."""
     html = _admin_html()
@@ -219,3 +225,22 @@ def test_admin_task_progress_renders_asr_and_translation_item_counts():
     assert "function taskProgressDetail(task)" in html
     assert "识别 ${task.asr_completed}/${task.asr_total}" in html
     assert "翻译 ${task.translate_completed}/${task.translate_total}" in html
+
+
+def test_admin_responsive_layout_has_overflow_guards_for_drawers_modals_and_long_content():
+    """Core overlays and data panels must remain usable with narrow viewports and long values."""
+    css = Path("static/style.css").read_text(encoding="utf-8")
+
+    assert ".task-drawer" in css and "overflow-x: hidden" in css
+    assert ".drawer-body" in css and "min-width: 0" in css
+    assert ".modal-panel" in css and "max-height: calc(100dvh - 2rem)" in css
+    assert ".file-list-container" in css and "overflow-x: auto" in css
+    assert ".mapping-row" in css and "min-width: 0" in css
+    assert "@media (max-width: 640px)" in css
+
+
+def test_admin_settings_uses_responsive_layout_hooks():
+    html = _admin_html()
+
+    assert 'class="settings-grid"' in html
+    assert 'class="video-dir-input-row"' in html

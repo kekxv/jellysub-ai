@@ -177,7 +177,7 @@
             </div>
             <div class="modal-body">
                 <form id="config-form">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                    <div class="settings-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
                         <!-- Connection & Path -->
                         <div class="settings-card">
                             <h3 class="settings-section-title">核心连接与路径</h3>
@@ -222,6 +222,7 @@
                                     <div class="tag-option" data-value="Qwen/Qwen3-0.6B">Qwen3 0.6B (本地)</div>
                                     <div class="tag-option" data-value="Qwen/Qwen3-1.7B">Qwen3 1.7B (本地)</div>
                                     <div class="tag-option" data-value="tencent/Hy-MT2-1.8B">Hy-MT2 1.8B (本地)</div>
+                                    <div class="tag-option" data-value="facebook/nllb-200-distilled-600M">NLLB-200 INT8 + fastText (离线)</div>
                                     <div class="tag-option" data-value="__online__">在线 API</div>
                                 </div>
                                 <input type="hidden" id="translate_mode">
@@ -256,7 +257,7 @@
                             <div class="form-group">
                                 <label>视频库监控目录</label>
                                 <div id="video-dirs-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem;"></div>
-                                <div style="display: flex; gap: 0.5rem;">
+                                <div class="video-dir-input-row" style="display: flex; gap: 0.5rem;">
                                     <input type="text" id="video-dir-input" placeholder="/path/to/videos" style="flex: 1;">
                                     <button type="button" class="btn btn-primary" onclick="addVideoDir()">添加</button>
                                 </div>
@@ -429,6 +430,7 @@
             'Qwen/Qwen3-0.6B': { mode: 'local', model_local: 'Qwen/Qwen3-0.6B' },
             'Qwen/Qwen3-1.7B': { mode: 'local', model_local: 'Qwen/Qwen3-1.7B' },
             'tencent/Hy-MT2-1.8B': { mode: 'local', model_local: 'tencent/Hy-MT2-1.8B' },
+            'facebook/nllb-200-distilled-600M': { mode: 'local', model_local: 'facebook/nllb-200-distilled-600M' },
             '__online__': { mode: 'online' },
         };
 
@@ -535,7 +537,7 @@
                     : (cfg.translate_model_local || 'Qwen/Qwen3-0.6B');
                 selectTranslateEngine(transTagValue);
                 // Override model_local if user had a custom value not in the tag list
-                const KNOWN_MODELS = ['Qwen/Qwen3-0.6B', 'Qwen/Qwen3-1.7B', 'tencent/Hy-MT2-1.8B'];
+                const KNOWN_MODELS = ['Qwen/Qwen3-0.6B', 'Qwen/Qwen3-1.7B', 'tencent/Hy-MT2-1.8B', 'facebook/nllb-200-distilled-600M'];
                 if (cfg.translate_model_local && !KNOWN_MODELS.includes(cfg.translate_model_local)) {
                     document.getElementById('translate_model_local').value = cfg.translate_model_local;
                 }

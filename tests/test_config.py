@@ -18,6 +18,7 @@ def test_app_config_defaults():
     assert cfg.target_language == "zh-CN"
     assert cfg.path_mappings == {}
     assert cfg.temp_dir == "./tmp"
+    assert cfg.translate_model_local == "Qwen/Qwen3-0.6B"
 
 
 def test_save_and_load_config(tmp_path):

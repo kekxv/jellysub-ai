@@ -207,8 +207,12 @@ def _preload_asr_model(model_name: str, engine: str = "qwen3-asr"):
 def _preload_translate_model(model_name: str):
     """后台线程预加载翻译模型。"""
     try:
-        from core.translate import load_local_model
-        load_local_model(model_name)
+        if model_name.lower().startswith(("facebook/nllb", "meta/nllb", "justfrederik/nllb")):
+            from core.translate.nllb import load_nllb_model
+            load_nllb_model(model_name)
+        else:
+            from core.translate import load_local_model
+            load_local_model(model_name)
         logger.info("Translation model preloaded: %s", model_name)
     except Exception:
         logger.exception("Translation model preload failed")

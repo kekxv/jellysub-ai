@@ -154,3 +154,16 @@ def test_ci_smoke_tests_native_torch_dependencies_after_build():
     assert "import torch, torchaudio, silero_vad" in workflow
     assert "torch.version.cuda is None" in workflow
     assert "needs: smoke" in workflow
+
+
+def test_gpu_translation_dependencies_match_cpu():
+    cpu = tomllib.loads(Path('pyproject.toml').read_text())['project']['dependencies']
+    gpu = tomllib.loads(Path('docker/gpu/pyproject.toml').read_text())['project']['dependencies']
+    for prefix in ('ctranslate2', 'fasttext-wheel', 'transformers', 'huggingface-hub'):
+        required = next(value for value in cpu if value.startswith(prefix))
+        assert required in gpu
+
+
+def test_images_smoke_test_offline_translation_imports_during_build():
+    for path in DOCKERFILES:
+        assert 'import ctranslate2, fasttext' in path.read_text()

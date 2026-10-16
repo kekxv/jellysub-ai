@@ -393,3 +393,21 @@ chown -R 110001:110001 /实际的PVE挂载源/jellysub_model_cache
 若目录显示为 `nobody:nogroup`，或 ModelScope 提示无法写入
 `model_cache/.lock`，说明映射后的 UID 没有写权限。修正整个模型缓存目录的所有者
 或 ACL 后，再重启服务。
+## NLLB-200 INT8 + fastText
+
+在翻译设置中选择 `NLLB-200 INT8 + fastText (离线)`。NLLB 使用 CTranslate2
+INT8 推理，默认下载固定版本的社区转换模型
+`JustFrederik/nllb-200-distilled-600M-ct2-int8`
+（revision: `302d78f00e6fdb50a1064059df7c392b735e9d05`），权重约 623 MB，
+加上分词器等文件约 647 MB。不会下载原版 2.46 GB FP32 权重或在本地转换。
+旧配置中的 `facebook/nllb-200-distilled-600M` 会自动使用这个 INT8 模型。
+
+模型不包含在仓库中，首次使用时下载至 `MODEL_CACHE`（默认 `./model_cache`）。
+fastText 使用官方压缩版 `lid.176.ftz`（约 938 KB），源语言未指定时用它识别。
+
+完全离线部署时，先缓存量化模型及 fastText，再设置 `OFFLINE_MODELS=true`。
+缺少缓存会在加载时报告错误。自定义模型必须为完整的 CTranslate2 模型目录，
+包含 `model.bin`、词表及 NLLB 分词器文件。ModelScope 用户需要提供实际存在的
+CT2 INT8 模型仓库 ID（`NLLB_MODEL_SOURCE=modelscope`），不能使用原版 FP32 模型。
+
+模型保留原 NLLB 的 CC-BY-NC-4.0 许可。

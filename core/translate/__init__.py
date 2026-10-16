@@ -21,6 +21,7 @@ from core.translate.openai_api import (
     OnlineTranslateEngine,
     _translate_batch_online,
 )
+from core.translate.nllb import NLLBTranslateEngine, NLLB_MODEL_DEFAULT
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -28,6 +29,7 @@ __all__ = [
     "TranslateEngine",
     "LocalTranslateEngine",
     "OnlineTranslateEngine",
+    "NLLBTranslateEngine",
     "load_local_model",
     "release_model",
     "check_model_idle",
@@ -55,6 +57,8 @@ def get_translate_engine(
     mode: "local" | "online"
     """
     if mode == "local":
+        if model_name.lower().startswith(("facebook/nllb", "meta/nllb", "justfrederik/nllb")):
+            return NLLBTranslateEngine(model_name=model_name, device=device)
         return LocalTranslateEngine(model_name=model_name, device=device)
     if mode == "online":
         return OnlineTranslateEngine(api_url=api_url, api_key=api_key, model=api_model)
