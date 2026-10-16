@@ -272,6 +272,88 @@ def test_webhook_rejects_signature_for_changed_body(client, webhook_payload):
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize("mode", ["subtitle", "subtitle_only"])
+@pytest.mark.parametrize("source", ["external", "internal", "none", "invalid_external", "empty_internal", "later_internal", "unextractable_internal"])
+def test_webhook_subtitle_preference(client, webhook_payload, reset_config, monkeypatch, source, mode):
+    from main import task_manager
+
+    reset_config.webhook_source_type = mode
+    video = Path(task_manager.db_path).parent / "videos" / "test.mp4"
+    if source in ("external", "invalid_external"):
+        video.with_suffix(".en.srt").write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\nHello world\n" if source == "external" else "broken",
+            encoding="utf-8",
+        )
+    streams = [{"index": 2}] if source in ("internal", "empty_internal", "unextractable_internal") else []
+    if source == "later_internal":
+        streams = [{"index": 2}, {"index": 3}]
+    monkeypatch.setattr("core.subtitle_source.list_internal_subtitle_streams", AsyncMock(return_value=streams))
+
+    async def extract(_video, index, output):
+        if source == "unextractable_internal":
+            return False
+        text = "1\n00:00:00,000 --> 00:00:01,000\nHello\n"
+        if source == "empty_internal" or (source == "later_internal" and index == 2):
+            text = ""
+        Path(output).write_text(text, encoding="utf-8")
+        return True
+
+    monkeypatch.setattr("core.subtitle_source.extract_internal_subtitle", extract)
+    legacy_probe = AsyncMock(return_value=True)
+    monkeypatch.setattr("core.audio.has_internal_subtitle", legacy_probe)
+    with patch("main.WEBHOOK_SECRET", "test-secret"):
+        response = _signed_webhook(client, webhook_payload)
+    has_source = source in ("external", "internal", "later_internal")
+    if mode == "subtitle_only" and not has_source:
+        assert response.json() == {"status": "skipped", "reason": "no usable subtitle"}
+        assert task_manager.list_tasks() == []
+        legacy_probe.assert_not_called()
+        return
+    assert response.json()["status"] == "accepted"
+    task = task_manager.list_tasks()[0]
+    assert task["source_type"] == ("subtitle" if has_source else "asr")
+    if source == "external":
+        assert task["source_path"] == str(video.with_suffix(".en.srt"))
+    if source == "internal":
+        assert task["source_index"] == 2
+    if source == "later_internal":
+        assert task["source_index"] == 3
+    legacy_probe.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", ["subtitle", "subtitle_only"])
+def test_webhook_preference_config_api(client, reset_config, mode):
+    client = _authenticated_client(client)
+    body = client.get("/api/config").json()
+    assert body["webhook_source_type"] == "asr"
+    body["webhook_source_type"] = mode
+    with patch("main.save_config") as save:
+        assert client.put("/api/config", json=body).status_code == 200
+        assert save.call_args.args[0].webhook_source_type == mode
+    body["webhook_source_type"] = "invalid"
+    assert client.put("/api/config", json=body).status_code == 422
+
+
+@pytest.mark.parametrize("mode", ["asr", "subtitle", "subtitle_only"])
+def test_webhook_skips_existing_target_in_both_modes(client, webhook_payload, reset_config, monkeypatch, mode):
+    from main import task_manager
+
+    reset_config.webhook_source_type = mode
+    monkeypatch.setattr("core.subtitle_checker.find_existing_subtitle", lambda *_: "target.srt")
+    monkeypatch.setattr("core.subtitle_checker.is_valid_subtitle", lambda *_: True)
+    with patch("main.WEBHOOK_SECRET", "test-secret"):
+        response = _signed_webhook(client, webhook_payload)
+    assert response.json() == {"status": "skipped", "reason": "subtitle already exists"}
+    assert task_manager.list_tasks() == []
+
+
+def test_webhook_asr_preserves_internal_skip(client, webhook_payload, monkeypatch):
+    monkeypatch.setattr("core.audio.has_internal_subtitle", AsyncMock(return_value=True))
+    with patch("main.WEBHOOK_SECRET", "test-secret"):
+        response = _signed_webhook(client, webhook_payload)
+    assert response.json() == {"status": "skipped", "reason": "internal subtitle"}
+
+
 def test_webhook_rejects_invalid_signature_before_parsing_malformed_json(client):
     """Unauthenticated malformed bodies receive the authentication response."""
     with patch("main.WEBHOOK_SECRET", "test-secret"):

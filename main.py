@@ -6,10 +6,12 @@ import hmac
 import json
 import logging
 import os
+import tempfile
 import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -322,6 +324,7 @@ async def api_asr_diagnostics(request: Request):
 class ConfigResponse(BaseModel):
     jellyfin_url: str = ""
     jellyfin_api_key: str = ""
+    webhook_source_type: Literal["asr", "subtitle", "subtitle_only"] = "asr"
     asr_engine: str = "qwen3-asr"
     asr_mode: str
     asr_model: str
@@ -926,7 +929,44 @@ async def webhook(request: Request):
         logger.info("Valid UTF-8 subtitle exists: %s, skipping", existing)
         return {"status": "skipped", "reason": "subtitle already exists"}
 
-    if await has_internal_subtitle(local_path):
+    source_type = "asr"
+    source_path = None
+    source_index = None
+    if cfg.webhook_source_type in ("subtitle", "subtitle_only"):
+        from core.subtitle_source import (
+            extract_internal_subtitle, find_external_subtitles,
+            list_internal_subtitle_streams, read_subtitle_segments,
+        )
+
+        # Ignore empty or malformed sidecars rather than queueing a doomed translation.
+        for source in find_external_subtitles(local_path):
+            try:
+                segments = read_subtitle_segments(source["path"])
+            except (OSError, ValueError, UnicodeError):
+                continue
+            if segments:
+                source_type, source_path = "subtitle", source["path"]
+                break
+        if source_path is None:
+            internal = await list_internal_subtitle_streams(local_path)
+            if internal:
+                # Metadata alone cannot establish whether a text track has events.
+                # Use isolated temporary files so concurrent deliveries do not collide.
+                with tempfile.TemporaryDirectory(prefix="webhook-subtitle-") as work_dir:
+                    for source in internal:
+                        extracted = str(Path(work_dir) / f"track-{source['index']}.srt")
+                        if not await extract_internal_subtitle(local_path, source["index"], extracted):
+                            continue
+                        try:
+                            segments = read_subtitle_segments(extracted)
+                        except (OSError, ValueError, UnicodeError):
+                            continue
+                        if segments:
+                            source_type, source_index = "subtitle", source["index"]
+                            break
+        if source_type == "asr" and cfg.webhook_source_type == "subtitle_only":
+            return {"status": "skipped", "reason": "no usable subtitle"}
+    elif await has_internal_subtitle(local_path):
         logger.info("Media has internal subtitle stream, skipping")
         return {"status": "skipped", "reason": "internal subtitle"}
 
@@ -936,6 +976,9 @@ async def webhook(request: Request):
         item_type=item_type,
         item_name=item_name,
         pipeline_type="webhook",
+        source_type=source_type,
+        source_path=source_path,
+        source_index=source_index,
     )
     if task_id is None:
         logger.info("Webhook task became active concurrently: %s", local_path)

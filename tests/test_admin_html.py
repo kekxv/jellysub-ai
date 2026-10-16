@@ -244,3 +244,40 @@ def test_admin_settings_uses_responsive_layout_hooks():
 
     assert 'class="settings-grid"' in html
     assert 'class="video-dir-input-row"' in html
+
+
+def test_settings_tabs_show_only_the_requested_panel():
+    """Switching settings must preserve mounted inputs while hiding other panels."""
+    result = subprocess.run(['node', '-e', r'''
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync('static/admin-ui.js', 'utf8');
+const names = ['engines', 'library', 'connection'];
+const tabs = names.map(name => ({ dataset: { settingsTab: name },
+    attrs: {}, setAttribute(key, value) { this.attrs[key] = value; } }));
+const panels = Object.fromEntries(names.map(name => ['settings-' + name, { hidden: false }]));
+const context = { document: {
+    querySelectorAll: () => tabs,
+    getElementById: id => panels[id],
+}};
+vm.runInNewContext(source.slice(0, source.indexOf('// Overlay management')), context);
+context.selectSettingsTab('library');
+if (!panels['settings-engines'].hidden || panels['settings-library'].hidden ||
+    !panels['settings-connection'].hidden || tabs[1].attrs['aria-selected'] !== 'true') {
+    throw Error('Settings panel selection failed');
+}
+context.selectSettingsTab('invalid');
+if (panels['settings-engines'].hidden) throw Error('Invalid tab must fall back to engines');
+console.log('passed');
+'''], check=True, capture_output=True, text=True)
+    assert result.stdout.strip() == 'passed'
+
+
+def test_task_and_settings_are_page_views_instead_of_overlays():
+    html = _admin_html()
+    assert 'data-admin-view="tasks"' in html
+    assert 'data-admin-view="settings"' in html
+    assert 'id="task-drawer-overlay"' not in html
+    assert 'id="settings-modal"' not in html
+    assert 'data-nav-view="tasks"' in html
+    assert 'data-nav-view="settings"' in html

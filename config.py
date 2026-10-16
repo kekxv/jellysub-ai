@@ -5,6 +5,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,7 @@ _CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", Path(__file__).parent / "confi
 class AppConfig(BaseModel):
     jellyfin_url: str = "http://localhost:8096"
     jellyfin_api_key: str = ""
+    webhook_source_type: Literal["asr", "subtitle", "subtitle_only"] = "asr"
 
     # ASR 配置
     asr_engine: str = "qwen3-asr"     # "qwen3-asr" | "sensevoice" | "openai"

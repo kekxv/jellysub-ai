@@ -150,6 +150,16 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000
 
 #### 7. Webhook 响应说明
 
+在后台 **设置 → Jellyfin 连接 → Webhook 自动处理方式** 中，可选择：
+
+- **语音识别**：默认值，保持原有行为；有内置字幕时跳过。
+- **优先翻译已有字幕**：优先读取同名外部字幕，再使用内置文本字幕，直接翻译并省去 ASR。外部字幕为空或无法解析时继续寻找其他来源；没有文本字幕（包括只有 PGS/DVD 等图形字幕）时回退语音识别。
+- **仅翻译字幕**：使用同名外部字幕或内置文本字幕；没有可用文本字幕时跳过，不启动语音识别。
+
+三种方式均在已有有效目标语言外挂字幕时跳过。配置字段为 `webhook_source_type`，取值 `asr` / `subtitle` / `subtitle_only`；仅影响之后新建的 Webhook 任务。
+
+后台侧边栏的 **Webhook 教程** 提供连接、路径映射、动态签名、Python 测试请求及常见响应说明。**任务中心 → 已完成任务 → 查看字幕** 可打开独立结果页面，对照该任务保存的原文、译文与时间轴。
+
 本服务收到请求后会返回以下状态之一：
 
 | 响应                                  | 含义                                   |
@@ -157,7 +167,8 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000
 | `{"status": "accepted", "item": "..."}` | 任务已创建，开始处理                      |
 | `{"status": "skipped", "reason": "unsupported type"}` | 非视频类型（音乐、图片等），跳过 |
 | `{"status": "skipped", "reason": "subtitle already exists"}` | 已有有效中文字幕，跳过 |
-| `{"status": "skipped", "reason": "internal subtitle"}` | 视频自带内置字幕，跳过 |
+| `{"status": "skipped", "reason": "internal subtitle"}` | 语音识别模式下，视频自带内置字幕，跳过 |
+| `{"status": "skipped", "reason": "no usable subtitle"}` | 仅翻译模式下，没有可用文本字幕，跳过 |
 | HTTP 401 `{"detail": "Invalid webhook signature"}` | 签名校验失败，请检查 `WEBHOOK_SECRET` 和原始 body |
 | HTTP 503 `{"detail": "Webhook secret is not configured"}` | 未配置密钥，端点已禁用 |
 | `{"status": "error", "reason": "missing Path or ItemId"}` | 请求缺少必要字段 |

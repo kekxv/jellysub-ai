@@ -5,75 +5,79 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理后台 — JellySub-AI</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/admin.css">
+    <script src="/static/admin-results.js" defer></script>
+    <script src="/static/admin-ui.js" defer></script>
 </head>
-<body>
-    <header class="topbar">
-        <div class="topbar-brand">
-            <div class="logo-mark">JS</div>
-            <span class="logo-text">JellySub-AI</span>
+<body class="admin-app">
+    <a class="skip-link" href="#main-content">跳转到主要内容</a>
+    <aside class="admin-sidebar" aria-label="主导航">
+        <a class="workspace-brand" href="/admin" aria-label="JellySub AI 管理后台">
+            <span class="brand-symbol"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#captions"></use></svg></span>
+            <span>JellySub<span class="brand-ai">AI</span><small>字幕管理工作台</small></span>
+        </a>
+        <nav class="workspace-nav" aria-label="工作台导航">
+            <p class="nav-caption">工作空间</p>
+            <a class="nav-item active" href="?view=media" data-nav-view="media" aria-current="page"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#library"></use></svg><span>媒体库</span></a>
+            <a class="nav-item" href="?view=tasks" data-nav-view="tasks"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#tasks"></use></svg><span>任务中心</span></a>
+            <a class="nav-item" href="?view=settings" data-nav-view="settings"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#settings"></use></svg><span>系统设置</span></a>
+            <a class="nav-item" href="?view=webhook" data-nav-view="webhook"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#guide"></use></svg><span>Webhook 教程</span></a>
+            <details class="mobile-account">
+                <summary aria-label="更多操作">···</summary>
+                <div class="mobile-account-menu"><a href="/">返回首页</a><button type="button" onclick="logout()">退出登录</button></div>
+            </details>
+        </nav>
+        <div class="sidebar-bottom">
+            <section class="engine-summary" aria-label="当前引擎配置">
+                <p class="nav-caption">当前配置 <span class="config-dot" aria-hidden="true"></span></p>
+                <dl>
+                    <div><dt>语音识别</dt><dd id="status-asr-model">加载中…</dd></div>
+                    <div><dt>字幕翻译</dt><dd id="status-translate-model">加载中…</dd></div>
+                    <div><dt>目标语言</dt><dd id="status-lang-value">加载中…</dd></div>
+                </dl>
+                <button class="engine-config-link" onclick="openSettings()">调整配置 <span aria-hidden="true">↗</span></button>
+            </section>
+            <div class="sidebar-links"><a href="/"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#home"></use></svg><span>返回首页</span></a><button onclick="logout()"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#logout"></use></svg><span>退出</span></button></div>
         </div>
-        <div class="topbar-actions">
-            <a href="/" class="topbar-btn" data-icon="🏠"><span>首页</span></a>
-            <button type="button" class="topbar-btn" data-icon="📋" onclick="openTaskDrawer()"><span>任务</span></button>
-            <button type="button" class="topbar-btn" data-icon="🧪" onclick="startTest()" id="topbar-test-btn"><span>测试字幕</span></button>
-            <button type="button" class="topbar-btn topbar-btn-accent" data-icon="⚙️" onclick="openSettings()"><span>设置</span></button>
-            <button type="button" class="topbar-btn" data-icon="🚪" onclick="logout()"><span>退出</span></button>
-        </div>
-    </header>
+    </aside>
 
-    <main class="dashboard">
-        <!-- Status -->
-        <div class="status-bar">
-            <div class="status-pill">
-                <span class="pill-dot"></span>
-                <span class="pill-label">ASR</span>
-                <span class="pill-value" id="status-asr-model">加载中...</span>
-            </div>
-            <div class="status-pill">
-                <span class="pill-dot"></span>
-                <span class="pill-label">翻译</span>
-                <span class="pill-value" id="status-translate-model">加载中...</span>
-            </div>
-            <div class="status-pill">
-                <span class="pill-dot"></span>
-                <span class="pill-label">目标语言</span>
-                <span class="pill-value" id="status-lang-value">加载中...</span>
-            </div>
-        </div>
+    <main class="dashboard" id="main-content" tabindex="-1">
+        <header class="workspace-heading">
+            <div><p class="workspace-breadcrumb">工作空间 <span>/</span> <span id="workspace-section">媒体库</span></p><h1><span id="workspace-title">字幕工作台</span><span class="heading-dot">.</span></h1><p class="workspace-description" id="workspace-description">从媒体到字幕，一处轻松管理。</p></div>
+            <button type="button" class="btn test-action" onclick="startTest()" id="topbar-test-btn"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#play"></use></svg>测试字幕流程</button>
+        </header>
 
+        <div id="view-media" data-admin-view="media">
         <section class="operations-overview" id="queue-summary" aria-labelledby="operations-title">
             <div class="overview-heading">
-                <div>
-                    <p class="eyebrow">字幕工作台</p>
-                    <h1 id="operations-title">今天的处理进度</h1>
-                    <p class="overview-subtitle" id="queue-summary-copy">正在读取队列状态…</p>
-                </div>
-                <button class="btn btn-primary" onclick="openTaskDrawer()">打开任务中心 <span aria-hidden="true">→</span></button>
+                <h2 id="operations-title">任务概览</h2>
+                <button class="text-action" onclick="openTaskPage()">全部任务 <span aria-hidden="true">↗</span></button>
             </div>
             <div class="task-stats" aria-label="任务统计">
                 <div class="task-stat stat-processing"><span>处理中</span><strong id="task-stat-processing">0</strong><small id="task-stat-processing-note">暂无活动任务</small></div>
-                <div class="task-stat stat-pending"><span>等待中</span><strong id="task-stat-pending">0</strong><small>将在当前任务后开始</small></div>
+                <div class="task-stat stat-pending"><span>等待中</span><strong id="task-stat-pending">0</strong><small>按顺序处理</small></div>
                 <div class="task-stat stat-done"><span>已完成</span><strong id="task-stat-done">0</strong><small>最近任务</small></div>
-                <div class="task-stat stat-failed"><span>需处理</span><strong id="task-stat-failed">0</strong><small>失败任务可直接重试</small></div>
+                <div class="task-stat stat-failed"><span>需处理</span><strong id="task-stat-failed">0</strong><small>查看原因并重试</small></div>
             </div>
+            <p id="queue-summary-copy" class="queue-caption" aria-live="polite">正在读取任务状态…</p>
             <div class="active-task-panel">
-                <div class="active-task-panel-head"><div><p class="eyebrow">当前工作</p><h2>进行中的任务</h2></div><span class="live-indicator"><i></i> 自动更新</span></div>
+                <div class="active-task-panel-head"><h3>当前队列</h3><span class="live-indicator"><i></i> 每 5 秒更新</span></div>
                 <div id="active-task-list" class="active-task-list"><p class="active-task-empty">正在加载活动任务…</p></div>
             </div>
         </section>
 
         <!-- Videos Section (full width) -->
-        <section class="dash-section">
+        <section class="dash-section" id="media-library" aria-labelledby="library-title">
             <div class="section-header">
-                <div><p class="eyebrow">媒体库</p><h2 class="section-title video-library-title">本地视频</h2></div>
+                <div><h2 class="section-title video-library-title" id="library-title">媒体库</h2><p class="section-description">浏览本地视频，选择文件生成字幕。</p></div>
                 <div class="section-header-actions">
-                    <button class="section-refresh" onclick="scanVideos()" title="刷新媒体库" aria-label="刷新媒体库">&#8635;</button>
-                    <button class="btn btn-primary" id="batch-gen-btn" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="promptBatchGen()">批量生成字幕</button>
+                    <button class="section-refresh" onclick="scanVideos()" title="刷新媒体库" aria-label="刷新媒体库"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#refresh"></use></svg><span>刷新</span></button>
+                    <button class="btn btn-primary" id="batch-gen-btn" style="display: none;" onclick="promptBatchGen()">批量生成字幕</button>
                 </div>
             </div>
 
             <div class="video-library-toolbar">
-                <label class="video-search-bar"><span class="sr-only">搜索视频</span><span aria-hidden="true">⌕</span><input type="text" id="video-search-input" placeholder="搜索文件名或路径..." oninput="onVideoSearch()"></label>
+                <label class="video-search-bar"><span class="sr-only">搜索视频</span><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#search"></use></svg><input type="text" id="video-search-input" placeholder="搜索文件名或路径..." oninput="onVideoSearch()"></label>
                 <div class="video-library-count" aria-live="polite"><strong id="video-library-count">正在加载</strong><span id="video-library-count-detail">媒体库</span></div>
             </div>
 
@@ -97,20 +101,14 @@
             </div>
             <div class="video-grid" id="video-grid" style="display: none;"></div>
             <div class="empty-state" id="video-empty" style="display: none;">
-                <div class="empty-icon">🎬</div>
-                <p>未发现视频文件，请检查设置中的目录映射。</p>
+                <div class="empty-icon"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#library"></use></svg></div>
+                <h3>从你的媒体库开始</h3><p>添加视频目录后，就可以在这里浏览视频并生成字幕。</p><button class="btn btn-primary" onclick="openSettings('library')"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#plus"></use></svg>添加视频目录</button>
             </div>
         </section>
-    </main>
-
-    <!-- Task Drawer -->
-    <div class="drawer-overlay" id="task-drawer-overlay" style="display: none;" onclick="closeTaskDrawer()"></div>
-    <aside class="task-drawer" id="task-drawer">
-        <div class="drawer-header task-history-header">
-            <div><p class="drawer-kicker">任务中心</p><h2>任务历史</h2><p class="drawer-subtitle">查看队列进度、结果与需要处理的任务</p></div>
-            <button class="btn task-history-close" onclick="closeTaskDrawer()" aria-label="关闭任务历史">&times;</button>
         </div>
-        <div class="drawer-body task-history-body">
+
+    <section id="view-tasks" class="tasks-page" data-admin-view="tasks" aria-label="任务中心" hidden>
+        <div class="task-history-body">
             <section class="task-history-summary" aria-live="polite">
                 <div><span class="task-history-summary-label">当前视图</span><strong id="task-history-total">正在加载</strong></div>
                 <p id="task-history-summary-copy">正在整理最近的任务记录…</p>
@@ -118,12 +116,11 @@
 
             <div id="running-section" class="task-running-section" style="display: none;">
                 <div class="running-counter">
-                    <div class="running-icon">⏳</div>
+                    <div class="running-icon"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#activity"></use></svg></div>
                     <div class="running-info">
                         <span class="running-label">正在处理</span>
                         <span class="running-count" id="running-count">0 个任务</span>
                     </div>
-                    <div class="running-bar"><div class="running-bar-inner"></div></div>
                 </div>
             </div>
 
@@ -149,7 +146,7 @@
                     <input type="checkbox" id="task-select-all" onchange="toggleAllTasks(this.checked)"> 全选
                 </label>
                 <div class="task-history-toolbar-actions">
-                    <button class="section-refresh" onclick="loadTasks()" title="刷新任务历史" aria-label="刷新任务历史">&#8635;</button>
+                    <button class="section-refresh" onclick="loadTasks()" title="刷新任务历史" aria-label="刷新任务历史"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#refresh"></use></svg></button>
                     <button class="btn btn-danger task-batch-delete" id="batch-del-btn" style="display: none;" onclick="batchDeleteTasks()">批量删除</button>
                 </div>
             </div>
@@ -166,21 +163,22 @@
                 <button class="btn" onclick="loadTasks(7)" id="task-next">→</button>
             </div>
         </div>
-    </aside>
+    </section>
 
-    <!-- Settings Modal -->
-    <div class="modal-overlay" id="settings-modal" style="display: none;">
-        <div class="modal-panel" style="max-width: 1000px;">
-            <div class="modal-header">
-                <h2 style="font-size: 1.25rem;">⚙️ 系统配置</h2>
-                <button class="section-refresh" style="font-size: 1.5rem; transform: none;" onclick="closeSettings()">&times;</button>
+    <section id="view-settings" class="settings-page" data-admin-view="settings" aria-label="系统设置" hidden>
+        <div class="settings-panel">
+            <div class="settings-tabs" role="tablist" aria-label="设置分类">
+                <button type="button" id="tab-engines" role="tab" aria-selected="true" aria-controls="settings-engines" tabindex="0" data-settings-tab="engines">处理引擎</button>
+                <button type="button" id="tab-library" role="tab" aria-selected="false" aria-controls="settings-library" tabindex="-1" data-settings-tab="library">媒体与语言</button>
+                <button type="button" id="tab-connection" role="tab" aria-selected="false" aria-controls="settings-connection" tabindex="-1" data-settings-tab="connection">Jellyfin 连接</button>
             </div>
-            <div class="modal-body">
+            <div class="settings-page-body">
                 <form id="config-form">
-                    <div class="settings-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                    <div class="settings-grid">
                         <!-- Connection & Path -->
-                        <div class="settings-card">
-                            <h3 class="settings-section-title">核心连接与路径</h3>
+                        <section class="settings-card" id="settings-connection" role="tabpanel" aria-labelledby="tab-connection" hidden>
+                            <h3 class="settings-section-title">连接你的 Jellyfin</h3><p class="settings-description">连接媒体服务器，并将服务器路径映射到本地目录。</p>
+                            <a class="btn guide-settings-link" href="?view=webhook" data-nav-view="webhook">查看 Webhook 设置教程 →</a>
                             <div class="form-group">
                                 <label>Jellyfin 服务器地址</label>
                                 <input type="url" id="jellyfin_url" placeholder="http://192.168.1.100:8096">
@@ -190,15 +188,24 @@
                                 <input type="password" id="jellyfin_api_key" placeholder="用于同步媒体库状态">
                             </div>
                             <div class="form-group">
+                                <label for="webhook_source_type">Webhook 自动处理方式</label>
+                                <select id="webhook_source_type" aria-describedby="webhook-source-help">
+                                    <option value="asr">语音识别</option>
+                                    <option value="subtitle">优先翻译字幕，自动回退语音识别（推荐）</option>
+                                    <option value="subtitle_only">仅翻译字幕</option>
+                                </select>
+                                <p class="settings-description" id="webhook-source-help">翻译模式优先使用同名外部字幕，其次使用内置文本字幕。自动回退模式在没有文本字幕时使用语音识别；仅翻译模式直接跳过。已有有效目标语言外挂字幕时均跳过。语音识别模式沿用原规则，存在内置字幕时跳过。</p>
+                            </div>
+                            <div class="form-group">
                                 <label>路径映射 (Jellyfin &rarr; 本地)</label>
                                 <div id="path-mappings" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem;"></div>
                                 <button type="button" class="btn btn-full" onclick="addMapping()">+ 添加新的路径映射</button>
                             </div>
-                        </div>
+                        </section>
 
                         <!-- ASR & Translation -->
-                        <div class="settings-card">
-                            <h3 class="settings-section-title">AI 处理引擎</h3>
+                        <section class="settings-card" id="settings-engines" role="tabpanel" aria-labelledby="tab-engines">
+                            <h3 class="settings-section-title">选择处理引擎</h3><p class="settings-description">分别设置语音识别和字幕翻译，可使用本地模型或在线服务。</p>
                             <div style="margin-bottom: 1.5rem;">
                                 <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:0.5rem;">语音识别 (ASR)</label>
                                 <div class="tag-selector" id="asr-engine-tags" style="margin-bottom: 0.5rem;">
@@ -237,11 +244,11 @@
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                        </section>
 
                         <!-- Language & Dirs -->
-                        <div class="settings-card">
-                            <h3 class="settings-section-title">语言偏好与监控</h3>
+                        <section class="settings-card" id="settings-library" role="tabpanel" aria-labelledby="tab-library" hidden>
+                            <h3 class="settings-section-title">媒体与语言</h3><p class="settings-description">设置字幕目标语言，以及需要浏览和处理的视频目录。</p>
                             <div class="form-group">
                                 <label>目标翻译语言</label>
                                 <div class="tag-selector" id="target-lang-tags">
@@ -267,17 +274,86 @@
                                 <label>临时工作目录</label>
                                 <input type="text" id="temp_dir" placeholder="./tmp">
                             </div>
-                        </div>
+                        </section>
                     </div>
                 </form>
             </div>
-            <div class="modal-footer">
+            <div class="settings-page-footer">
                 <span id="save-status" style="margin-right: auto; font-weight: 600;"></span>
-                <button class="btn" onclick="closeSettings()">取消</button>
-                <button type="submit" form="config-form" class="btn btn-primary" id="save-btn" style="padding: 0.6rem 2rem;">确认并保存</button>
+                <button class="btn" onclick="closeSettings()">返回媒体库</button>
+                <button type="submit" form="config-form" class="btn btn-primary" id="save-btn" style="padding: 0.6rem 2rem;">保存设置</button>
             </div>
         </div>
-    </div>
+    </section>
+    <section id="view-result" class="result-page" data-admin-view="result" aria-label="字幕结果" hidden>
+        <div class="page-action-row">
+            <a class="btn" href="?view=tasks" data-nav-view="tasks">← 返回任务中心</a>
+            <button class="btn" onclick="loadTaskResult(new URLSearchParams(location.search).get('task'))">重新加载</button>
+        </div>
+        <div class="result-panel">
+            <header class="result-heading"><h2 id="result-title">字幕结果</h2><p id="result-meta"></p></header>
+            <div id="result-content" class="result-content" aria-live="polite">选择已完成任务以查看字幕。</div>
+        </div>
+    </section>
+
+    <section id="view-webhook" class="webhook-guide" data-admin-view="webhook" aria-label="Webhook 设置教程" hidden>
+        <div class="guide-intro">
+            <div><span class="guide-eyebrow">JELLYFIN → JELLYSUB-AI</span><h2>新媒体入库，自动处理字幕</h2><p>完成连接、路径映射与签名设置后，Jellyfin 即可自动提交任务。在任务中心跟踪处理进度并查看字幕。</p></div>
+            <a class="btn btn-primary" href="?view=settings&amp;tab=connection" onclick="event.preventDefault(); openSettings('connection')">配置 Jellyfin 连接 →</a>
+        </div>
+        <div class="guide-grid">
+            <article class="guide-card"><span class="guide-step">01</span><h3>准备连接与媒体目录</h3>
+                <p>在「系统设置 → Jellyfin 连接」填写服务器地址与 API Key，并配置路径映射。例如：</p>
+                <div class="guide-path"><code>/media/movies</code><span>映射到本服务可访问的</span><code>/mnt/movies</code></div>
+                <p>在「媒体与语言」将 <code>/mnt/movies</code> 加入视频库监控目录，选择目标语言。目录需允许写入字幕；Docker 部署时填写容器内路径。</p>
+            </article>
+            <article class="guide-card"><span class="guide-step">02</span><h3>选择自动处理方式</h3>
+                <dl class="guide-modes"><dt>语音识别</dt><dd>从音轨生成字幕。沿用原规则，视频有内置字幕时跳过。</dd>
+                    <dt>优先翻译字幕，自动回退</dt><dd>优先同名外挂字幕，其次内置文本字幕；没有可用文本字幕时使用语音识别。</dd>
+                    <dt>仅翻译字幕</dt><dd>只处理已有文本字幕，没有来源则跳过，不启动语音识别。</dd></dl>
+                <p>翻译支持 SRT、VTT、ASS、SSA 和内置文本字幕；PGS/DVD 等图形字幕不能直接翻译。三种模式在已有有效目标语言外挂字幕时均跳过。</p>
+            </article>
+            <article class="guide-card"><span class="guide-step">03</span><h3>配置请求签名</h3>
+                <p>在服务的环境变量或 <code>.env</code> 中设置随机的 <code>WEBHOOK_SECRET</code>，重启服务。Docker 部署需将该变量传入容器。</p>
+                <pre><code>openssl rand -hex 32
+# 将生成值配置为 WEBHOOK_SECRET，然后重启服务</code></pre>
+                <p>发送方使用相同密钥，对<strong>最终发送的原始 JSON 字节</strong>计算 HMAC-SHA256，将 64 位十六进制结果放入 <code>X-Jellyfin-Signature</code> 请求头。</p>
+                <p class="guide-note">签名随请求内容变化，不能填成固定 Header。若插件无法动态签名，需要经过支持 HMAC 的中间发送器转发。未设置密钥时接口返回 503。</p>
+            </article>
+            <article class="guide-card"><span class="guide-step">04</span><h3>连接 Jellyfin Webhook</h3>
+                <p>在 Jellyfin 插件目录安装 Webhook 并重启。添加 Generic Webhook 通知目标，启用它，使用 <code>POST</code> 和 <code>application/json</code>。</p>
+                <label class="guide-endpoint-label">本服务接收地址</label><code id="webhook-endpoint" class="guide-endpoint">/webhook</code>
+                <p>地址需能被 Jellyfin 或中间发送器访问；反向代理部署时使用其对外地址。触发事件选择 <strong>Item Added（新增媒体）</strong>，仅电影与剧集会被处理。</p>
+                <pre><code>{
+  "ItemType": "Movie",
+  "ItemId": "Jellyfin 中实际的媒体 ID",
+  "Name": "电影名称",
+  "Path": "/media/movies/电影名称.mkv"
+}</code></pre><p>路径使用 Jellyfin 所见的媒体路径；<code>ItemType</code> 为 <code>Movie</code> 或 <code>Episode</code>。</p>
+            </article>
+            <article class="guide-card guide-wide"><span class="guide-step">05</span><h3>验证签名与任务处理</h3>
+                <p>可先用下面的 Python 示例测试接收端。将媒体 ID、路径和地址替换为真实值，在终端环境中设置同一个 <code>WEBHOOK_SECRET</code>。测试会实际提交任务；成功后去任务中心查看。</p>
+                <pre><code>import hashlib, hmac, json, os, urllib.request
+
+payload = {"ItemType": "Movie", "ItemId": "真实媒体ID",
+           "Name": "测试电影", "Path": "/media/movies/电影名称.mkv"}
+body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+signature = hmac.new(os.environ["WEBHOOK_SECRET"].encode(),
+                     body, hashlib.sha256).hexdigest()
+request = urllib.request.Request(
+    "http://127.0.0.1:8000/webhook", data=body, method="POST",
+    headers={"Content-Type": "application/json",
+             "X-Jellyfin-Signature": signature})
+with urllib.request.urlopen(request) as response:
+    print(response.read().decode())</code></pre>
+                <div class="guide-responses"><div><strong>accepted / already_running</strong><p>已创建任务 / 同一视频已有进行中的任务。</p></div>
+                    <div><strong>skipped</strong><p><code>subtitle already exists</code>：已有目标字幕；<code>internal subtitle</code>：语音识别模式下已有内置字幕；<code>no usable subtitle</code>：仅翻译模式未发现文本字幕。</p></div>
+                    <div><strong>401 / 503</strong><p>签名不匹配 / 服务未配置密钥。确认密钥一致，并对实际发送的原始字节签名。</p></div>
+                    <div><strong>403 / 404</strong><p>映射后的文件不在监控目录内 / 文件不存在。检查路径映射与容器挂载。</p></div></div>
+            </article>
+        </div>
+    </section>
+    </main>
 
     <!-- Player Modal (Identical to previous) -->
     <div class="modal-overlay" id="player-modal" style="display: none;">
@@ -378,8 +454,8 @@
         let currentVideoDirs = [];
 
         // --- Settings Logic ---
-        function openSettings() { document.getElementById('settings-modal').style.display = 'flex'; }
-        function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
+        function openSettings(tab = 'engines') { AdminUI.showView('settings', { tab }); }
+        function closeSettings() { AdminUI.showView('media'); }
 
         function onTranslateEngineSelect(value) {
             const mapping = TRANSLATE_ENGINE_MAP[value];
@@ -520,6 +596,7 @@
                 // Connection
                 document.getElementById('jellyfin_url').value = cfg.jellyfin_url || '';
                 document.getElementById('jellyfin_api_key').value = cfg.jellyfin_api_key || '';
+                document.getElementById('webhook_source_type').value = cfg.webhook_source_type || 'asr';
                 document.getElementById('temp_dir').value = cfg.temp_dir || './tmp';
 
                 // ASR
@@ -626,6 +703,7 @@
             const body = {
                 jellyfin_url: document.getElementById('jellyfin_url').value,
                 jellyfin_api_key: document.getElementById('jellyfin_api_key').value,
+                webhook_source_type: document.getElementById('webhook_source_type').value,
                 asr_engine: document.getElementById('asr_engine').value,
                 asr_mode: document.getElementById('asr_mode').value,
                 asr_model: (document.querySelector('#asr-engine-tags .tag-option.active') || {}).dataset.value || 'Qwen/Qwen3-ASR-0.6B',
@@ -651,7 +729,7 @@
                 else { status.textContent = '❌ 保存失败，请重试'; status.style.color = 'var(--red)'; }
             } catch (e) { status.textContent = '❌ 网络连接错误'; status.style.color = 'var(--red)'; }
             
-            btn.disabled = false; btn.textContent = '确认并保存';
+            btn.disabled = false; btn.textContent = '保存设置';
             setTimeout(() => { status.textContent = ''; loadConfig(); }, 3000);
         });
 
@@ -661,15 +739,7 @@
         let currentBreadcrumbList = [];
         const VIDEO_PATH_HASH_PREFIX = '#videos=';
 
-        function openTaskDrawer() {
-            document.getElementById('task-drawer-overlay').style.display = 'block';
-            document.getElementById('task-drawer').classList.add('open');
-            loadTasks();
-        }
-        function closeTaskDrawer() {
-            document.getElementById('task-drawer-overlay').style.display = 'none';
-            document.getElementById('task-drawer').classList.remove('open');
-        }
+        function openTaskPage() { AdminUI.showView('tasks'); }
 
         function openSubPreview(path) {
             document.getElementById('sub-preview-title').textContent = '字幕预览';
@@ -905,7 +975,7 @@
                 const escapedName = escHtml(dir);
                 html += `<tr class="dir-row video-directory-row" onclick="navigateTo('${escapedPath}')">
                     <td class="col-cb"></td>
-                    <td class="col-name"><div class="file-name file-name-directory"><span class="file-icon">📁</span><span class="file-name-content"><strong>${escapedName}</strong><small>目录 · 点击进入</small></span></div></td>
+                    <td class="col-name"><div class="file-name file-name-directory"><span class="file-icon"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#folder"></use></svg></span><span class="file-name-content"><strong>${escapedName}</strong><small>目录 · 点击进入</small></span></div></td>
                     <td class="col-size"><span class="directory-size-label">文件夹</span></td>
                     <td class="col-status"><span class="directory-status">浏览目录</span></td>
                     <td class="col-actions"><button class="dir-action-arrow" onclick="event.stopPropagation();navigateTo('${escapedPath}')" title="进入目录" aria-label="进入 ${escapedName}">打开 <span aria-hidden="true">→</span></button></td>
@@ -922,7 +992,7 @@
                 const sizeMb = (v.size / (1024 * 1024)).toFixed(1);
                 html += `<tr class="video-media-row">
                     <td class="col-cb"><input type="checkbox" data-video-path="${safePath}" onchange="onVideoSelect(this)"></td>
-                    <td class="col-name"><div class="file-name" title="${escHtml(v.name)}"><span class="file-icon">🎬</span><span class="file-name-content"><strong>${escHtml(v.name)}</strong><small>${v.processing ? '正在处理中，状态会自动更新' : (v.has_subtitle ? '字幕已就绪' : '尚未生成字幕')}</small></span></div></td>
+                    <td class="col-name"><div class="file-name" title="${escHtml(v.name)}"><span class="file-icon"><svg class="ui-icon" aria-hidden="true"><use href="/static/admin-icons.svg#video"></use></svg></span><span class="file-name-content"><strong>${escHtml(v.name)}</strong><small>${v.processing ? '正在处理中，状态会自动更新' : (v.has_subtitle ? '字幕已就绪' : '尚未生成字幕')}</small></span></div></td>
                     <td class="col-size"><span class="file-col-size">${sizeMb} MB</span></td>
                     <td class="col-status"><span class="file-col-status"><span class="badge ${sCls}">${sTxt}</span></span></td>
                     <td class="col-actions">
@@ -1174,12 +1244,12 @@
                 const el = document.getElementById(`task-stat-${status}`); if (el) el.textContent = count;
             });
             document.getElementById('task-stat-processing-note').textContent = counts.processing ? '正在处理媒体和字幕' : '暂无活动任务';
-            document.getElementById('queue-summary-copy').textContent = total ? `队列中共有 ${total} 个任务；重点关注正在处理和需重试的项目。` : '还没有任务。选择视频后即可开始生成字幕。';
+            document.getElementById('queue-summary-copy').textContent = total ? `最近 ${tasks.length} 条记录 · 共 ${total} 个任务` : '还没有任务，选择视频即可开始。';
             const active = tasks.filter(t => t.status === 'processing' || t.status === 'pending');
-            document.getElementById('active-task-list').innerHTML = active.length ? active.map(renderActiveTask).join('') : '<p class="active-task-empty">队列空闲，可以从下方视频库开始新的字幕任务。</p>';
+            document.getElementById('active-task-list').innerHTML = active.length ? active.map(renderActiveTask).join('') : '<p class="active-task-empty">队列空闲，选择视频即可开始。</p>';
         }
         async function refreshOperationalOverview() {
-            try { const resp = await fetch('/api/tasks?limit=100'); if (!resp.ok) return; const data = await resp.json(); renderOperationalOverview(data.tasks || [], data.total || 0); } catch (_) {}
+            try { if (window.AdminUI?.currentView() === 'tasks' && !selectedTasks.size) await loadTasks(); const resp = await fetch('/api/tasks?limit=100'); if (!resp.ok) return; const data = await resp.json(); renderOperationalOverview(data.tasks || [], data.total || 0); } catch (_) {}
         }
         function setFilter(btn) {
             document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active', 'btn-primary'));
@@ -1198,7 +1268,7 @@
             const resp = await fetch(`/api/tasks?${params}`);
             const data = await resp.json();
             renderTasks(data.tasks || [], data.total || 0);
-            if (taskOffset === 0 && !taskFilterStatus && !type) renderOperationalOverview(data.tasks || [], data.total || 0);
+
         }
 
         function renderTasks(tasks, total) {
@@ -1248,6 +1318,7 @@
                     <div class="task-history-progress"><div class="progress-bar"><span style="width:${progress}%"></span></div><strong>${progress}%</strong></div>
                     ${t.status === 'failed' && t.error_message ? `<p class="task-history-error"><span>失败原因</span>${escHtml(t.error_message)}</p>` : ''}
                     <div class="task-history-actions">
+                        ${t.status === 'done' ? `<button class="btn task-action-result" onclick="openTaskResult(${t.id})">查看字幕</button>` : ''}
                         ${t.status === 'failed' ? `<button class="btn task-action-retry" onclick="retryTask(${t.id})">重新尝试</button>` : ''}
                         <button class="btn btn-danger task-action-delete" onclick="deleteTask(${t.id})">删除</button>
                     </div>`;
