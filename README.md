@@ -422,3 +422,19 @@ fastText 使用官方压缩版 `lid.176.ftz`（约 938 KB），源语言未指�
 CT2 INT8 模型仓库 ID（`NLLB_MODEL_SOURCE=modelscope`），不能使用原版 FP32 模型。
 
 模型保留原 NLLB 的 CC-BY-NC-4.0 许可。
+
+## Qwen 本地翻译量化
+
+在翻译设置中选择 Qwen 本地模型后，可以将 **Qwen 量化**设为 `INT8` 或 `INT4`。
+量化使用 Transformers + bitsandbytes：INT8 通常占用约一半显存，INT4 通常占用约四分之一；
+实际占用会随模型、批量和运行设备变化。`不量化`保留原来的加载方式。
+
+量化只作用于 Qwen 本地翻译模型，NLLB、在线 API 和 ASR 不受影响。首次保存配置不会把权重打进项目，
+首次使用时仍会从配置的模型源自动下载原始 Qwen 权重到模型缓存，再由 bitsandbytes 量化加载。
+量化运行需要 `bitsandbytes`（已加入项目依赖）；如果部署环境不支持该后端，服务会在加载时给出明确错误。
+
+### 外部字幕文件名匹配
+
+从已有字幕翻译会扫描视频同目录下的同名字幕，支持直接同名（例如 `Movie.mkv` + `Movie.srt`）以及常见后缀组合：
+`Movie.en.srt`、`Movie.zh-CN.srt`、`Movie.forced.en.srt`、`Movie.en.forced.srt`、`Movie.default.zh-CN.srt`。
+支持 SRT、VTT、ASS 和 SSA；文件名不匹配的视频不会误用目录中的其他字幕。

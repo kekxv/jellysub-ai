@@ -42,6 +42,7 @@ class AppConfig(BaseModel):
     translate_api_key: str = ""
     translate_model: str = "gpt-4o"
     translate_model_local: str = "Qwen/Qwen3-0.6B"
+    translate_quantization: Literal["none", "int8", "int4"] = "none"
     translate_prompt_format: str = "json"  # "json" | "numbered"
     translate_thinking: bool = False  # 在线模式是否开启思考
 

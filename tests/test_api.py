@@ -133,6 +133,7 @@ def test_get_config():
     assert data["jellyfin_url"] == "http://test:8096"
     assert data["target_language"] == "zh-CN"
     assert data["translate_model_local"] == "Qwen/Qwen3-0.6B"
+    assert data["translate_quantization"] == "none"
 
 
 def test_get_config_unauthenticated():

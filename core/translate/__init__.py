@@ -51,6 +51,7 @@ def get_translate_engine(
     api_key: str = "",
     api_model: str = "",
     device: str | None = None,
+    quantization: str = "none",
 ) -> TranslateEngine:
     """创建翻译引擎实例。
 
@@ -59,7 +60,7 @@ def get_translate_engine(
     if mode == "local":
         if model_name.lower().startswith(("facebook/nllb", "meta/nllb", "justfrederik/nllb")):
             return NLLBTranslateEngine(model_name=model_name, device=device)
-        return LocalTranslateEngine(model_name=model_name, device=device)
+        return LocalTranslateEngine(model_name=model_name, device=device, quantization=quantization)
     if mode == "online":
         return OnlineTranslateEngine(api_url=api_url, api_key=api_key, model=api_model)
     raise ValueError(f"Unknown translate mode: {mode}")
@@ -85,6 +86,7 @@ async def translate_segments(
     prompt_format: str = "json",
     source_lang: str = "",
     progress_callback: Callable[[int, int], None] | None = None,
+    quantization: str = "none",
 ) -> list[dict]:
     """
     翻译字幕片段。
@@ -114,6 +116,7 @@ async def translate_segments(
         api_url=api_url,
         api_key=api_key,
         api_model=model,
+        quantization=quantization,
     )
 
     # 引擎自动选择最合适的输出格式

@@ -700,6 +700,7 @@ class TaskManager:
                             prompt_format=cfg.translate_prompt_format,
                             source_lang=detected_lang,
                             progress_callback=update_translate_progress,
+                            quantization=cfg.translate_quantization,
                         )
                     )
                 finally:

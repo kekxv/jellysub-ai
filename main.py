@@ -206,7 +206,7 @@ def _preload_asr_model(model_name: str, engine: str = "qwen3-asr"):
         logger.exception("ASR model preload failed")
 
 
-def _preload_translate_model(model_name: str):
+def _preload_translate_model(model_name: str, quantization: str = "none"):
     """后台线程预加载翻译模型。"""
     try:
         if model_name.lower().startswith(("facebook/nllb", "meta/nllb", "justfrederik/nllb")):
@@ -214,7 +214,7 @@ def _preload_translate_model(model_name: str):
             load_nllb_model(model_name)
         else:
             from core.translate import load_local_model
-            load_local_model(model_name)
+            load_local_model(model_name, quantization=quantization)
         logger.info("Translation model preloaded: %s", model_name)
     except Exception:
         logger.exception("Translation model preload failed")
@@ -225,7 +225,7 @@ def _preload_models(cfg):
     if cfg.asr_mode == "local" and cfg.asr_model:
         _preload_asr_model(cfg.asr_model, engine=cfg.asr_engine)
     if cfg.translate_mode == "local" and cfg.translate_model_local:
-        _preload_translate_model(cfg.translate_model_local)
+        _preload_translate_model(cfg.translate_model_local, cfg.translate_quantization)
 
 
 # --- 首页 ---
@@ -336,6 +336,7 @@ class ConfigResponse(BaseModel):
     translate_api_key: str
     translate_model: str
     translate_model_local: str
+    translate_quantization: Literal["none", "int8", "int4"] = "none"
     translate_prompt_format: str
     translate_thinking: bool
     target_language: str
@@ -478,6 +479,7 @@ async def api_test_translate(body: TestTranslationRequest, request: Request):
         model_local=cfg.translate_model_local,
         thinking=cfg.translate_thinking,
         prompt_format=cfg.translate_prompt_format,
+        quantization=cfg.translate_quantization,
     )
     if not translated:
         raise HTTPException(status_code=502, detail="Translation test failed")

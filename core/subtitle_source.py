@@ -48,14 +48,15 @@ def _candidate_sort_key(path: Path) -> tuple:
 def _detect_lang(stem: str) -> str:
     """从文件名（去扩展名）推断语言代码，如 'en'、'zh-cn'、'zh'。"""
     stem = stem.lower()
-    # 直接去掉语言标签后缀前的部分；这里简单提取最后的标签段
+    # 在 forced.en / en.forced 等常见组合中，从后缀令牌中挑出语言令牌。
     core = _strip_lang_tags(stem)
-    remainder = stem[len(core):].lstrip(".")
-    if not remainder:
-        # 也许核心名本身含标签，尝试拆最后一段
-        parts = stem.split(".")
-        if len(parts) >= 2:
-            remainder = parts[-1]
+    suffix_tokens = stem[len(core):].lstrip(".").split(".")
+    remainder = next(
+        (token for token in reversed(suffix_tokens)
+         if token.replace("_", "-") in _LANG_GROUP_ALIASES
+         or token.replace("_", "-").startswith(("zh-", "en-", "pt-"))),
+        suffix_tokens[-1] if suffix_tokens else "",
+    )
     # 统一规范化：'eng' -> 'en'，'chi'/'zho' -> 'zh'
     normalized = remainder
     if len(normalized) == 3:

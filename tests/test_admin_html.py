@@ -218,6 +218,14 @@ def test_admin_translation_settings_include_nllb_fasttext_engine():
     assert "NLLB-200 INT8 + fastText" in html
 
 
+def test_admin_translation_settings_include_qwen_quantization():
+    html = _admin_html()
+    assert 'id="translate_quantization"' in html
+    assert 'value="int8"' in html
+    assert 'value="int4"' in html
+    assert "translate_quantization: document.getElementById('translate_quantization').value" in html
+
+
 def test_admin_task_progress_renders_asr_and_translation_item_counts():
     """Active task UI identifies the completed and total units for ASR and translation."""
     html = _admin_html()

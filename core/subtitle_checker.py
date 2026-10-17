@@ -9,7 +9,12 @@ logger = logging.getLogger("uvicorn.error")
 _SUBTITLE_EXTENSIONS = (".srt", ".vtt", ".ass")
 
 # 字幕文件名中的语言/标签后缀，去掉后与视频名匹配
-_LANG_TAGS_RE = re.compile(r'\.(?:zh|chi|chs|cht|cn|en|eng|ja|jpn|ko|kor|default|bilingual|foreign)(?:[-_.][^.]*)*$', re.IGNORECASE)
+_LANGUAGE_TAGS = {
+    "zh", "chi", "chs", "cht", "cn", "zho", "en", "eng", "ja", "jpn", "ko", "kor",
+    "fr", "fra", "fre", "de", "deu", "ger", "es", "spa", "it", "ita", "pt", "por",
+    "ru", "rus", "ar", "ara", "pl", "pol", "nl", "nld", "dut", "tr", "tur",
+}
+_DESCRIPTOR_TAGS = {"default", "bilingual", "foreign", "forced", "sdh", "cc", "hi", "full", "signs", "songs", "commentary"}
 
 
 def _strip_lang_tags(stem: str) -> str:
@@ -18,7 +23,24 @@ def _strip_lang_tags(stem: str) -> str:
     例: "Show.S01E01.default.zh-CN" -> "Show.S01E01"
     例: "Movie.2024.bilingual.zh-TW" -> "Movie.2024"
     """
-    return _LANG_TAGS_RE.sub('', stem)
+    parts = stem.split(".")
+    if len(parts) < 2:
+        return stem
+    # Providers place descriptors on either side of the language: movie.forced.en
+    # and movie.en.forced are both common. Strip only a suffix containing a
+    # recognized language or descriptor so ordinary dotted titles remain intact.
+    end = len(parts)
+    saw_tag = False
+    while end > 1:
+        token = parts[end - 1].lower()
+        normalized = token.replace("_", "-")
+        is_language = normalized in _LANGUAGE_TAGS or normalized.startswith(("zh-", "en-", "pt-"))
+        if is_language or token in _DESCRIPTOR_TAGS:
+            saw_tag = saw_tag or is_language
+            end -= 1
+            continue
+        break
+    return ".".join(parts[:end]) if saw_tag else stem
 
 
 def _is_chinese_subtitle(path: Path) -> bool:

@@ -22,6 +22,8 @@ dependencies = [
     "pyotp>=2.9",
     "silero-vad>=5.0",
     "ctranslate2>=4.6,<5",
+    "bitsandbytes>=0.45.0",
+    "kernels>=0.11.1",
 ]
 
 [tool.setuptools]

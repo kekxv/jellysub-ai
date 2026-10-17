@@ -27,9 +27,15 @@ def _touch_model():
     _model_last_access = time.time()
 
 
-def load_local_model(model_name: str, device: str | None = None):
+def load_local_model(model_name: str, device: str | None = None, quantization: str = "none"):
     """懒加载本地翻译模型。"""
     global _local_model, _model_last_access
+    requested_model = model_name
+    if _local_model is not None and (
+        _local_model.get("requested_model") != requested_model
+        or _local_model.get("quantization", "none") != quantization
+    ):
+        release_model()
     if _local_model is not None:
         _touch_model()
         return _local_model
@@ -81,15 +87,26 @@ def load_local_model(model_name: str, device: str | None = None):
     logger.info("Loading translation model %s on %s", model_name, device)
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=False)
     dtype = torch.bfloat16 if device == "cuda" else torch.float16
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=dtype,
-        trust_remote_code=False,
-    ).to(device)
+    model_kwargs = {"torch_dtype": dtype, "trust_remote_code": False}
+    if quantization in {"int4", "int8"}:
+        try:
+            from transformers import BitsAndBytesConfig
+        except ImportError as exc:
+            raise RuntimeError("Qwen 量化翻译需要安装 bitsandbytes") from exc
+        quant_kwargs = {"load_in_4bit": quantization == "int4", "load_in_8bit": quantization == "int8"}
+        if quantization == "int4":
+            quant_kwargs.update({"bnb_4bit_compute_dtype": dtype, "bnb_4bit_quant_type": "nf4", "bnb_4bit_use_double_quant": True})
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(**quant_kwargs)
+        model_kwargs["device_map"] = "auto"
+        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs).to(device)
     _local_model = {
         "tokenizer": tokenizer,
         "model": model,
         "device": device,
+        "requested_model": requested_model,
+        "quantization": quantization,
     }
     _touch_model()
     return _local_model
@@ -128,9 +145,11 @@ class LocalTranslateEngine(TranslateEngine):
         self,
         model_name: str = "Qwen/Qwen3-0.6B",
         device: str | None = None,
+        quantization: str = "none",
     ):
         self.model_name = model_name
         self._device = device
+        self.quantization = quantization
 
     def preferred_format(self) -> str:
         return "numbered"
@@ -138,7 +157,7 @@ class LocalTranslateEngine(TranslateEngine):
     def translate_batch(self, texts: list[str], target_lang: str,
                         prompt_format: str = "json", thinking: bool = False,
                         context: str = "", source_lang: str = "") -> list[str] | None:
-        translator = load_local_model(self.model_name, self._device)
+        translator = load_local_model(self.model_name, self._device, self.quantization)
         return _local_generate(translator, texts, target_lang, prompt_format, thinking, context, source_lang)
 
 

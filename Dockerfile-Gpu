@@ -74,6 +74,6 @@ USER app
 WORKDIR /data
 
 # Verify native translation dependencies in the final runtime without downloading models.
-RUN python -c "import ctranslate2, fasttext; from transformers import AutoTokenizer"
+RUN python -c "import ctranslate2, fasttext, bitsandbytes, kernels; from transformers import AutoTokenizer"
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

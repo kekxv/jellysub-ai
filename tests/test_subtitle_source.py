@@ -124,6 +124,21 @@ def test_find_external_subtitles_detects_lang(tmp_path):
     assert found[0]["lang"] == "en"
 
 
+def test_find_external_subtitles_accepts_descriptor_and_language_suffixes(tmp_path):
+    video = tmp_path / "Show.S01E01.mkv"
+    video.touch()
+    (tmp_path / "Show.S01E01.forced.en.srt").write_text("x", encoding="utf-8")
+    (tmp_path / "Show.S01E01.en.forced.srt").write_text("x", encoding="utf-8")
+    (tmp_path / "Show.S01E01.commentary.txt").write_text("x", encoding="utf-8")
+
+    names = [item["name"] for item in find_external_subtitles(str(video))]
+    assert "Show.S01E01.forced.en.srt" in names
+    assert "Show.S01E01.en.forced.srt" in names
+    assert "Show.S01E01.commentary.txt" not in names
+    found = {item["name"]: item for item in find_external_subtitles(str(video))}
+    assert found["Show.S01E01.forced.en.srt"]["lang"] == "en"
+
+
 # --------------------------------------------------------------------------- #
 #  subtitle_source — internal streams (mocked ffprobe)
 # --------------------------------------------------------------------------- #

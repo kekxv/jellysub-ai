@@ -234,6 +234,15 @@
                                 </div>
                                 <input type="hidden" id="translate_mode">
                                 <input type="hidden" id="translate_model_local">
+                                <div class="form-group" id="translate-quantization-group">
+                                    <label for="translate_quantization">Qwen 量化</label>
+                                    <select id="translate_quantization">
+                                        <option value="none">不量化（原始精度）</option>
+                                        <option value="int8">INT8（约 1/2 内存）</option>
+                                        <option value="int4">INT4（约 1/4 内存）</option>
+                                    </select>
+                                    <p class="form-hint">仅用于 Qwen 本地翻译模型；需要 bitsandbytes，首次使用仍会自动下载模型权重。</p>
+                                </div>
                                 <div id="translate-online-fields" style="display:none;">
                                     <div class="form-group"><label>翻译 API 地址</label><input type="url" id="translate_api_url"></div>
                                     <div class="form-group"><label>翻译 API Key</label><input type="password" id="translate_api_key"></div>
@@ -465,6 +474,7 @@ with urllib.request.urlopen(request) as response:
                 document.getElementById('translate_model_local').value = mapping.model_local;
             }
             document.getElementById('translate-online-fields').style.display = mapping.mode === 'online' ? '' : 'none';
+            document.getElementById('translate-quantization-group').style.display = mapping.mode === 'local' && !String(value).toLowerCase().includes('nllb') ? '' : 'none';
         }
 
         function selectTranslateEngine(value) {
@@ -613,6 +623,7 @@ with urllib.request.urlopen(request) as response:
                     ? '__online__'
                     : (cfg.translate_model_local || 'Qwen/Qwen3-0.6B');
                 selectTranslateEngine(transTagValue);
+                document.getElementById('translate_quantization').value = cfg.translate_quantization || 'none';
                 // Override model_local if user had a custom value not in the tag list
                 const KNOWN_MODELS = ['Qwen/Qwen3-0.6B', 'Qwen/Qwen3-1.7B', 'tencent/Hy-MT2-1.8B', 'facebook/nllb-200-distilled-600M'];
                 if (cfg.translate_model_local && !KNOWN_MODELS.includes(cfg.translate_model_local)) {
@@ -715,6 +726,7 @@ with urllib.request.urlopen(request) as response:
                 translate_api_key: document.getElementById('translate_api_key').value,
                 translate_model: document.getElementById('translate_model').value,
                 translate_model_local: document.getElementById('translate_model_local').value,
+                translate_quantization: document.getElementById('translate_quantization').value,
                 translate_prompt_format: 'json',
                 translate_thinking: false,
                 target_language: document.getElementById('target_language').value,

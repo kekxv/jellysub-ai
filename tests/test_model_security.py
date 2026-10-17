@@ -54,3 +54,12 @@ def test_transformers_loader_never_enables_remote_code():
     from core.translate import local
 
     assert "trust_remote_code=False" in inspect.getsource(local.load_local_model)
+
+
+def test_quantized_translation_loader_uses_bitsandbytes_config():
+    from core.translate import local
+
+    source = inspect.getsource(local.load_local_model)
+    assert "BitsAndBytesConfig" in source
+    assert "load_in_4bit" in source
+    assert "load_in_8bit" in source
