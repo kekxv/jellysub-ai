@@ -80,6 +80,31 @@ def test_nllb_loader_downloads_only_int8_snapshot(monkeypatch, tmp_path):
     assert tokenizer.call_args.kwargs["local_files_only"] is True
 
 
+def test_nllb_skips_unsupported_items_and_translates_later_items(monkeypatch):
+    from core.translate import nllb
+
+    monkeypatch.setattr(nllb, "load_nllb_model", lambda *args, **kwargs: {"fake": True})
+    detected = iter(["eng", "xx", "fra"])
+    monkeypatch.setattr(nllb, "detect_fasttext_language", lambda text: next(detected))
+    calls = []
+
+    def fake_generate(translator, texts, source_lang, target_lang):
+        calls.append((list(texts), source_lang, target_lang))
+        if source_lang == "xx":
+            raise ValueError("unsupported")
+        return [f"translated:{text}" for text in texts]
+
+    monkeypatch.setattr(nllb, "_nllb_generate", fake_generate)
+    result = nllb.NLLBTranslateEngine().translate_batch(["hello", "unsupported", "bonjour"], "zh-CN")
+
+    assert result == ["translated:hello", None, "translated:bonjour"]
+    assert calls == [
+        (["hello"], "eng_Latn", "zho_Hans"),
+        (["unsupported"], "xx", "zho_Hans"),
+        (["bonjour"], "fra_Latn", "zho_Hans"),
+    ]
+
+
 def test_nllb_offline_missing_cache_has_actionable_error(monkeypatch):
     import core.translate.nllb as nllb
     monkeypatch.setattr(nllb, "_nllb_model", None)

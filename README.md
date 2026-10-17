@@ -421,6 +421,9 @@ fastText 使用官方压缩版 `lid.176.ftz`（约 938 KB），源语言未指�
 包含 `model.bin`、词表及 NLLB 分词器文件。ModelScope 用户需要提供实际存在的
 CT2 INT8 模型仓库 ID（`NLLB_MODEL_SOURCE=modelscope`），不能使用原版 FP32 模型。
 
+NLLB 会对字幕逐条使用 fastText 检测源语言，再按语言分组翻译。某一条字幕的语言无法映射或不被当前
+NLLB 分词器支持时，会记录警告、保留该条原文并继续处理后面的字幕；同一批中其他可识别语言不会被连带跳过。
+
 模型保留原 NLLB 的 CC-BY-NC-4.0 许可。
 
 ## Qwen 本地翻译量化

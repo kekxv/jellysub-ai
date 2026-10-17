@@ -161,6 +161,11 @@ def _nllb_generate(translator: dict, texts: list[str], source_lang: str, target_
     tokenizer.src_lang = source_lang
     # Explicitly reject unknown language tokens instead of silently using UNK.
     for lang in (source_lang, target_lang):
+        language_ids = getattr(tokenizer, "lang_code_to_id", None)
+        language_tokens = getattr(tokenizer, "added_tokens_encoder", None)
+        known_language_tokens = language_ids if isinstance(language_ids, dict) else language_tokens
+        if isinstance(known_language_tokens, dict) and lang not in known_language_tokens:
+            raise ValueError(f"Unsupported NLLB language: {lang}")
         if tokenizer.convert_tokens_to_ids(lang) == tokenizer.unk_token_id:
             raise ValueError(f"Unsupported NLLB language: {lang}")
     encoded = tokenizer(texts, truncation=True, max_length=512)["input_ids"]
@@ -193,11 +198,33 @@ class NLLBTranslateEngine(TranslateEngine):
     def translate_batch(self, texts, target_lang, prompt_format="numbered", thinking=False,
                         context="", source_lang=""):
         translator = load_nllb_model(self.model_name, self._device)
+        target_tag = fasttext_label_to_nllb(target_lang)
         if isinstance(source_lang, (set, list, tuple)):
             source_lang = next(iter(source_lang), "")
-        detected = source_lang or detect_fasttext_language(" ".join(texts))
-        source_tag = fasttext_label_to_nllb(detected)
-        target_tag = fasttext_label_to_nllb(target_lang)
-        if not source_tag or not target_tag:
-            raise ValueError(f"Unsupported NLLB language: source={detected!r}, target={target_lang!r}")
-        return _nllb_generate(translator, texts, source_tag, target_tag)
+
+        # Detect each subtitle independently. A mixed-language batch must not
+        # fail as a whole when one line has an unknown or unsupported language.
+        groups: dict[str, list[tuple[int, str]]] = {}
+        results: list[str | None] = [None] * len(texts)
+        for index, text in enumerate(texts):
+            try:
+                detected = source_lang or detect_fasttext_language(text)
+                source_tag = fasttext_label_to_nllb(detected)
+                if not source_tag or not target_tag:
+                    raise ValueError(f"source={detected!r}, target={target_lang!r}")
+                groups.setdefault(source_tag, []).append((index, text))
+            except (RuntimeError, ValueError, TypeError) as exc:
+                logger.warning("Skipping subtitle %d: unsupported NLLB language (%s)", index, exc)
+
+        for source_tag, items in groups.items():
+            try:
+                translated = _nllb_generate(
+                    translator, [text for _, text in items], source_tag, target_tag,
+                )
+            except (RuntimeError, ValueError, TypeError) as exc:
+                logger.warning("Skipping %d subtitles for unsupported NLLB language %s: %s",
+                               len(items), source_tag, exc)
+                continue
+            for (index, _), value in zip(items, translated):
+                results[index] = value
+        return results

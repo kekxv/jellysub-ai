@@ -120,6 +120,28 @@ async def test_translate_segments_splits_failed_batches_before_falling_back_to_i
     ]
 
 
+@pytest.mark.asyncio
+async def test_translate_segments_accepts_skipped_items_and_continues(monkeypatch):
+    class Engine(TranslateEngine):
+        def preferred_format(self):
+            return "numbered"
+
+        def translate_batch(self, texts, *args, **kwargs):
+            return ["translated first", None, "translated third"]
+
+    monkeypatch.setattr("core.translate.get_translate_engine", lambda **kwargs: Engine())
+    segments = [
+        {"start": 0, "end": 1, "text": "first"},
+        {"start": 1, "end": 2, "text": "unsupported"},
+        {"start": 2, "end": 3, "text": "third"},
+    ]
+    result = await translate_segments(segments, "zh-CN", source_lang="en")
+
+    assert [item["text"] for item in result] == [
+        "translated first", "unsupported", "translated third",
+    ]
+
+
 def test_online_translation_uses_only_standard_chat_completions_parameters(monkeypatch):
     """Disabling thinking must not add provider-specific fields to the SDK request."""
     request = {}

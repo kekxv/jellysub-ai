@@ -144,6 +144,8 @@ async def translate_segments(
     source_matches_target = bool(source_base & target_group)
 
     def is_valid_translation(index: int, text: str) -> bool:
+        if text is None:
+            return False
         original = all_texts[index].strip()
         translated = text.strip()
         return (
@@ -179,6 +181,11 @@ async def translate_segments(
         if batch_translated and len(batch_translated) == len(texts):
             retry_indices = []
             for index, translated in zip(indices, batch_translated):
+                if translated is None:
+                    # NLLB uses None for a line whose detected language is
+                    # unsupported. Preserve that source line and continue.
+                    translated_texts[index] = all_texts[index].strip()
+                    continue
                 if is_valid_translation(index, translated):
                     translated_texts[index] = translated.strip()
                 else:
@@ -205,6 +212,8 @@ async def translate_segments(
             )
             if translated and len(translated) == 1 and is_valid_translation(index, translated[0]):
                 translated_texts[index] = translated[0].strip()
+            elif translated and len(translated) == 1 and translated[0] is None:
+                translated_texts[index] = all_texts[index].strip()
             else:
                 translated_texts[index] = all_texts[index].strip()
                 logger.warning("Translation item %d remained invalid; using source text", index)
